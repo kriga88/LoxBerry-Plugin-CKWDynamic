@@ -1,13 +1,7 @@
 ====== CKW Dynamischer Tarif ======
+/* Plugin-Daten (Wiki-Formular): Autor Christian Stutz | Logo :plugins:ckwdynamic:logo.png | Status Beta | Version 0.1.3 | Min. LB 3.0 | Release Download https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v0.1.3.zip | Sprachen Deutsch | Diskussion https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/issues */
 
-{{ plugins:ckwdynamic:logo.png?128|CKW Dynamischer Tarif}}
-
-^ Autor | Christian Stutz |
-^ Version | 0.1.3 (Beta) |
-^ LoxBerry | ab 3.0 |
-^ Download | [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/releases|GitHub Releases]] |
-^ Quellcode | [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic|GitHub]] |
-^ Diskussion | [[https://www.loxforum.com|LoxForum]] |
+Quellcode: [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic|GitHub]]
 
 ++++ Versionshistorie |
 
