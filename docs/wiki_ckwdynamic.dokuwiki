@@ -25,7 +25,7 @@ Die CKW (Centralschweizerische Kraftwerke) bietet mit **CKW Netz Home dynamic** 
   * Netztarif wählbar: Home dynamic (< 50 MWh/Jahr) oder Business dynamic (ab 50 MWh/Jahr)
   * Stromprodukt wählbar: CKW ClassicStrom, BudgetStrom, MeinRegioStrom oder eigener Energiepreis
   * Neue Jahrespreise und Konzessionsabgaben der Gemeinden werden automatisch aus der offiziellen Tarifdatei der CKW übernommen
-  * Alle Preiskomponenten einzeln verfügbar (Total, Netz, dynamischer Netzanteil, fixe Netzzuschläge, Energie, CKW integrated)
+  * Alle Preiskomponenten einzeln verfügbar (Total, Netz, dynamischer Netzanteil, fixe Netzzuschläge, Energie, Konzessionsabgabe, CKW integrated)
   * Wahlweise inkl. MwSt und in CHF/kWh oder Rp./kWh
   * Stundenreihen relativ (+0 … +23) und absolut (00:00 … 23:00) für den Spotpreis-Optimierer, zusätzlich die Preise von morgen
   * Min/Max/Durchschnitt der nächsten 24 Stunden, günstigstes Zeitfenster, Rang der aktuellen Stunde
@@ -38,7 +38,9 @@ Das Plugin ist ein privates Community-Projekt und steht in keiner Verbindung zur
 
 ===== Download =====
 
-Das Plugin-ZIP gibt es bei den [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/releases|GitHub Releases]]. In der LoxBerry-Pluginverwaltung kann der Link zum ZIP direkt eingefügt werden.
+Das Plugin-ZIP gibt es bei den [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/releases|GitHub Releases]]. In der LoxBerry-Pluginverwaltung kann der Link zum ZIP direkt eingefügt werden, z. B. für die aktuelle Version:
+
+''https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v0.1.3.zip''
 
 ===== Installation =====
 
