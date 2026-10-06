@@ -1,0 +1,858 @@
+{
+    "_info": "Rueckfalltabelle. Das Plugin liest die Jahrespreise automatisch aus den maschinenlesbaren CKW-Tarifdateien (ckw.ch). Diese Tabelle wird nur verwendet, wenn das nicht klappt; Eintraege hier koennen auf GitHub ergaenzt werden und gelten ab valid_from.",
+    "updated": "2026-10-06",
+    "source": "CKW-Tarifdateien 20250828_tariffs.json und 20260817_tariffs.json (ckw.ch/stromprodukte)",
+    "products": {
+        "classic": {
+            "name": "CKW ClassicStrom",
+            "description": "Standardprodukt, Wasserkraft Schweiz. Preis kommt live aus der CKW-API (Komponente electricity); die Tabelle dient nur als Rueckfall.",
+            "from_api": true,
+            "prices": [
+                {
+                    "valid_from": "2026-01-01",
+                    "rp_kwh": 12
+                },
+                {
+                    "valid_from": "2027-01-01",
+                    "rp_kwh": 11.5
+                }
+            ]
+        },
+        "budget": {
+            "name": "CKW BudgetStrom",
+            "description": "Kernkraft Schweiz, Online-Self-Service.",
+            "from_api": false,
+            "prices": [
+                {
+                    "valid_from": "2026-01-01",
+                    "rp_kwh": 11.3
+                },
+                {
+                    "valid_from": "2027-01-01",
+                    "rp_kwh": 10.8
+                }
+            ]
+        },
+        "meinregio": {
+            "name": "CKW MeinRegioStrom",
+            "description": "Sonnenkraft aus der Zentralschweiz.",
+            "from_api": false,
+            "prices": [
+                {
+                    "valid_from": "2026-01-01",
+                    "rp_kwh": 15
+                },
+                {
+                    "valid_from": "2027-01-01",
+                    "rp_kwh": 13.5
+                }
+            ]
+        }
+    },
+    "dynamic_reference": {
+        "_info": "Netznutzung dynamisch: mengengewichteter Durchschnittspreis laut ckw.ch/dynamic (Fuellwert fuer fehlende Stunden). grid_fix = SDL + Stromreserve + solidarisierte Kosten + Netzzuschlag. Alle Werte Rp./kWh exkl. MwSt.",
+        "home_dynamic": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 6.65
+            }
+        ],
+        "business_dynamic": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 5.3
+            }
+        ],
+        "grid_fix": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 3.03
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 2.85
+            }
+        ],
+        "netzzuschlag": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 2.3
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 2.3
+            }
+        ],
+        "stromreserve": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.41
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.17
+            }
+        ]
+    },
+    "municipalities_info": "Konzessionsabgabe an die Gemeinde (Rp./kWh exkl. MwSt). 2026 aus dem CKW-Preisblatt 'Konzessionsabgabe an Gemeinde', ab 2027 aus der CKW-Tarifdatei. Eintraege mit percent: Prozent des Netznutzungsentgelts (Netz gesamt ohne Netzzuschlag, bei excl_reserve zusaetzlich ohne Stromreserve), exakt pro Viertelstunde gerechnet.",
+    "municipalities": {
+        "Adligenswil": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.9
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.9
+            }
+        ],
+        "Aesch (LU)": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.3
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.3
+            }
+        ],
+        "Alberswil": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.7
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.76
+            }
+        ],
+        "Altbüron": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.85
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.9
+            }
+        ],
+        "Altishofen": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.8
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.8
+            }
+        ],
+        "Ballwil": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.85
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.85
+            }
+        ],
+        "Beromünster": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 1.0
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 1
+            }
+        ],
+        "Buchrain": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": false
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": false,
+                "avg_rp": 0.85
+            }
+        ],
+        "Buttisholz": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 1.1
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 1.1
+            }
+        ],
+        "Büron": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.9
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.9
+            }
+        ],
+        "Dagmersellen": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.6
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.6
+            }
+        ],
+        "Dierikon": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.6
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.6
+            }
+        ],
+        "Doppleschwand": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.92
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": false,
+                "avg_rp": 0.85
+            }
+        ],
+        "Ebikon": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": true
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": true,
+                "avg_rp": 0.85
+            }
+        ],
+        "Egolzwil": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.85
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.85
+            }
+        ],
+        "Eich": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.8
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.8
+            }
+        ],
+        "Emmen": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.85
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.85
+            }
+        ],
+        "Entlebuch": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.8
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": false,
+                "avg_rp": 0.85
+            }
+        ],
+        "Ermensee": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.9
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.9
+            }
+        ],
+        "Eschenbach (LU)": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.9
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.9
+            }
+        ],
+        "Escholzmatt-Marbach": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": true
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": true,
+                "avg_rp": 0.85
+            }
+        ],
+        "Ettiswil": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.9
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.9
+            }
+        ],
+        "Fischbach": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.8
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.8
+            }
+        ],
+        "Flühli": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": true
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": true,
+                "avg_rp": 0.85
+            }
+        ],
+        "Geuensee": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.7
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.7
+            }
+        ],
+        "Gisikon": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.9
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.9
+            }
+        ],
+        "Grossdietwil": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.85
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.85
+            }
+        ],
+        "Grosswangen": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.87
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.87
+            }
+        ],
+        "Hasle": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": true
+            }
+        ],
+        "Hergiswil bei Willisau": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": true
+            }
+        ],
+        "Hildisrieden": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 1.1
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 1.1
+            }
+        ],
+        "Hitzkirch": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.85
+            }
+        ],
+        "Hohenrain": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.8
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.8
+            }
+        ],
+        "Honau": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": true
+            }
+        ],
+        "Horw": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.93
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.85
+            }
+        ],
+        "Inwil": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.88
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.88
+            }
+        ],
+        "Knutwil": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 1.0
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 1
+            }
+        ],
+        "Kriens": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": false
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": false,
+                "avg_rp": 0.85
+            }
+        ],
+        "Luzern": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 2.1
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 2.1
+            }
+        ],
+        "Mauensee": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.85
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.85
+            }
+        ],
+        "Meggen": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.95
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.95
+            }
+        ],
+        "Meierskappel": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 1.0
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 1
+            }
+        ],
+        "Menznau": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.75
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.75
+            }
+        ],
+        "Nebikon": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.7
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.7
+            }
+        ],
+        "Neuenkirch": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.85
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.85
+            }
+        ],
+        "Nottwil": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": true
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": true,
+                "avg_rp": 0.85
+            }
+        ],
+        "Oberkirch": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": true
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": true,
+                "avg_rp": 0.85
+            }
+        ],
+        "Pfaffnau": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.85
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.85
+            }
+        ],
+        "Rain": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.8
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.8
+            }
+        ],
+        "Reiden": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.9
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.9
+            }
+        ],
+        "Rickenbach (LU)": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.67
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.67
+            }
+        ],
+        "Roggliswil": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.91
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.91
+            }
+        ],
+        "Romoos": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 1.01
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 1.01
+            }
+        ],
+        "Root": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.75
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.75
+            }
+        ],
+        "Rothenburg": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": false
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": false,
+                "avg_rp": 0.85
+            }
+        ],
+        "Ruswil": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 1.0
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 1
+            }
+        ],
+        "Römerswil": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.8
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.8
+            }
+        ],
+        "Schenkon": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.85
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.85
+            }
+        ],
+        "Schlierbach": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.85
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.85
+            }
+        ],
+        "Schongau": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 1.2
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 1.2
+            }
+        ],
+        "Schötz": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.82
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.82
+            }
+        ],
+        "Schüpfheim": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.8
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.8
+            }
+        ],
+        "Sempach": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.9
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.9
+            }
+        ],
+        "Sursee": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.85
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.85
+            }
+        ],
+        "Triengen": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.7
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.81
+            }
+        ],
+        "Udligenswil": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 1.0
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 1
+            }
+        ],
+        "Wauwil": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.85
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.85
+            }
+        ],
+        "Werthenstein": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0,
+                "percent": 10,
+                "excl_reserve": true
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.85
+            }
+        ],
+        "Wikon": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.85
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.85
+            }
+        ],
+        "Willisau": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.89
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.89
+            }
+        ],
+        "Wolhusen": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.75
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.85
+            }
+        ],
+        "Zell (LU)": [
+            {
+                "valid_from": "2026-01-01",
+                "rp_kwh": 0.85
+            },
+            {
+                "valid_from": "2027-01-01",
+                "rp_kwh": 0.85
+            }
+        ]
+    }
+}

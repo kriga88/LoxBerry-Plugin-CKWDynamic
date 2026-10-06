@@ -1,0 +1,9 @@
+<h3>CKW Dynamischer Tarif</h3>
+<p>Holt alle 15 Minuten die dynamischen Strompreise der CKW (Netz Home/Business dynamic) und sendet sie per MQTT oder UDP an den Miniserver.</p>
+<p><b>Netztarif:</b> Home dynamic bis 50 MWh/Jahr, Business dynamic ab 50 MWh/Jahr.</p>
+<p><b>Stromprodukt:</b> ClassicStrom kommt live aus der CKW-API. Budget- und MeinRegioStrom sowie die Konzessionsabgabe der Gemeinde liest das Plugin täglich aus der offiziellen Tarifdatei der CKW (neue Jahrespreise automatisch). Für andere Produkte einen eigenen Energiepreis eintragen.</p>
+<p><b>Komponenten:</b> total = Netz + Energie + Konzessionsabgabe + Zusatzkosten; concession = Konzessionsabgabe; grid = Netz gesamt; gridusage = dynamischer Netzanteil; gridfix = fixe Netzzuschläge; energy = Stromprodukt; integrated = CKW-Wert Netz + ClassicStrom.</p>
+<p><b>Fehlende Stunden</b> (morgen vor ca. 12 Uhr, API-Ausfall) werden standardmässig mit dem von CKW kommunizierten Durchschnittspreis gefüllt.</p>
+<p><b>Spotpreis-Optimierer:</b> Betriebsart Relativ, Eingänge +0…+23 mit <code>total_rel00…total_rel23</code> verbinden.</p>
+<p><b>Online:</b> <code>online</code> = 1 bei erfolgreichem Abruf. Zusätzlich <code>last_update_lox</code> überwachen.</p>
+<p>Ausführliche Anleitung: <a href="https://wiki.loxberry.de/plugins/ckwdynamic/start" target="_blank">LoxBerry-Wiki</a></p>

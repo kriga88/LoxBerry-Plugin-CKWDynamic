@@ -1,0 +1,25 @@
+{
+  "tariff": "home_dynamic",
+  "product": "classic",
+  "custom_energy_rp": 12.0,
+  "municipality": "",
+  "extra_rp": 0.0,
+  "vat_enabled": false,
+  "vat_rate": 8.1,
+  "unit": "chf",
+  "components": [
+    "total"
+  ],
+  "series_rel": true,
+  "series_abs": false,
+  "series_tmr": false,
+  "fill_mode": "ckwavg",
+  "cheap_hours": 3,
+  "tariffs_remote": true,
+  "mqtt_enabled": true,
+  "mqtt_topic": "ckwdynamic",
+  "udp_enabled": false,
+  "udp_msnr": 1,
+  "udp_port": 7000,
+  "udp_prefix": "ckw"
+}

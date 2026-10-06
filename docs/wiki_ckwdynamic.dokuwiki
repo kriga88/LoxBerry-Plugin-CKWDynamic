@@ -1,0 +1,201 @@
+====== CKW Dynamischer Tarif ======
+
+{{ plugins:ckwdynamic:logo.png?128|CKW Dynamischer Tarif}}
+
+^ Autor | Christian Stutz |
+^ Version | 0.1.3 (Beta) |
+^ LoxBerry | ab 3.0 |
+^ Download | [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/releases|GitHub Releases]] |
+^ Quellcode | [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic|GitHub]] |
+^ Diskussion | [[https://www.loxforum.com|LoxForum]] |
+
+++++ Versionshistorie |
+
+  * **0.1.3** (2026-10) - Erste Beta-Version
+
+++++
+
+----
+
+===== Funktion des Plugins =====
+
+Die CKW (Centralschweizerische Kraftwerke) bietet mit **CKW Netz Home dynamic** und **CKW Netz Business dynamic** einen dynamischen Netztarif an: Der Preis für die Netznutzung ändert sich alle 15 Minuten und wird täglich gegen Mittag für den Folgetag veröffentlicht. Das Plugin holt diese Preise über die öffentliche Schnittstelle der CKW und stellt sie dem Loxone Miniserver zur Verfügung - passend aufbereitet für den Baustein **Spotpreis-Optimierer**.
+
+  * Abruf alle 15 Minuten (Cronjob), zusätzlich nach jedem Neustart und manuell per Knopfdruck
+  * Netztarif wählbar: Home dynamic (< 50 MWh/Jahr) oder Business dynamic (ab 50 MWh/Jahr)
+  * Stromprodukt wählbar: CKW ClassicStrom, BudgetStrom, MeinRegioStrom oder eigener Energiepreis
+  * Neue Jahrespreise und Konzessionsabgaben der Gemeinden werden automatisch aus der offiziellen Tarifdatei der CKW übernommen
+  * Alle Preiskomponenten einzeln verfügbar (Total, Netz, dynamischer Netzanteil, fixe Netzzuschläge, Energie, CKW integrated)
+  * Wahlweise inkl. MwSt und in CHF/kWh oder Rp./kWh
+  * Stundenreihen relativ (+0 … +23) und absolut (00:00 … 23:00) für den Spotpreis-Optimierer, zusätzlich die Preise von morgen
+  * Min/Max/Durchschnitt der nächsten 24 Stunden, günstigstes Zeitfenster, Rang der aktuellen Stunde
+  * Online-Status und Zeitstempel zur Überwachung
+  * Ausgabe per **MQTT** (LoxBerry-Broker, Abo im MQTT-Gateway wird automatisch angelegt) und/oder **UDP** (Vorlage für Loxone Config zum Herunterladen)
+
+<WRAP center round info 100%>
+Das Plugin ist ein privates Community-Projekt und steht in keiner Verbindung zur CKW AG. Massgebend für die Abrechnung sind ausschliesslich die Preise und Preisblätter der CKW.
+</WRAP>
+
+===== Download =====
+
+Das Plugin-ZIP gibt es bei den [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/releases|GitHub Releases]]. In der LoxBerry-Pluginverwaltung kann der Link zum ZIP direkt eingefügt werden.
+
+===== Installation =====
+
+  - LoxBerry ab Version 3.0 (MQTT-Gateway ist dort Bestandteil von LoxBerry).
+  - In der **Plugin-Verwaltung** das ZIP installieren.
+  - Das Plugin ruft direkt nach der Installation die Preise ab und legt beim MQTT-Gateway das Abo ''ckwdynamic/+'' an.
+  - Unter **Einstellungen** Tarif und Stromprodukt prüfen und speichern.
+
+Automatische Updates können in der Plugin-Verwaltung aktiviert werden.
+
+===== Konfiguration =====
+
+==== Tarif & Stromprodukt ====
+
+^ Einstellung ^ Beschreibung ^
+| Netztarif | //CKW Netz Home dynamic// oder //CKW Netz Business dynamic// - wie auf deiner Stromrechnung. |
+| Stromprodukt | **ClassicStrom**: Energiepreis kommt live aus der CKW-API. **BudgetStrom / MeinRegioStrom**: Preis aus der Tarifdatei der CKW (siehe unten). **Anderes Produkt / eigener Preis**: Energiepreis selbst eintragen. |
+| Eigener Energiepreis | Rp./kWh exkl. MwSt, nur bei „eigener Preis“. |
+| Jahrespreise automatisch aktualisieren | Liest einmal pro Tag die Tarifdatei der CKW (Rückfall: Tabelle auf GitHub). Empfohlen. |
+| Gemeinde | Für die Konzessionsabgabe deiner Gemeinde (2026 aus dem CKW-Preisblatt „Konzessionsabgabe an Gemeinde“, ab 2027 aus der CKW-Tarifdatei; Luzern inkl. Klimarappen). Gemeinden mit „10 % der Netznutzung“ (z. B. Kriens, Buchrain, Rothenburg, Ebikon) werden exakt pro Viertelstunde gerechnet. Wird zum Total addiert und als ''concession'' ausgegeben. |
+| Weitere Zusatzkosten | Rp./kWh exkl. MwSt, optional. Wird nur zum Total addiert. |
+
+==== Darstellung ====
+
+^ Einstellung ^ Beschreibung ^
+| MwSt einrechnen | Rechnet die MwSt (Standard 8.1 %) in **alle** ausgegebenen Preise ein. Die CKW-API liefert Preise exkl. MwSt. |
+| Einheit | CHF/kWh (5 Nachkommastellen) oder Rp./kWh (3 Nachkommastellen). |
+
+==== Ausgabewerte ====
+
+^ Einstellung ^ Beschreibung ^
+| Komponenten | Für welche Komponenten Stundenreihen und Kennzahlen gesendet werden. Die aktuellen Werte (''…_now'') werden immer für alle Komponenten gesendet. |
+| Relativ | ''…_rel00'' bis ''…_rel23'' = laufende Stunde +0 bis +23. Für den Spotpreis-Optimierer (Betriebsart Relativ). |
+| Absolut | ''…_abs00'' bis ''…_abs23'' = heute 00:00 bis 23:00. Für die Betriebsart Absolut. |
+| Morgen | ''…_tmr00'' bis ''…_tmr23'' = morgen 00:00 bis 23:00 (ab ca. 12 Uhr verfügbar). |
+| Fehlende Stunden füllen mit | Gefüllt werden nur Stunden ohne CKW-Preis: jeden Morgen bis ca. 12 Uhr die Stunden von morgen und bei einem Ausfall der CKW-API. Standard (empfohlen): **CKW-Durchschnittspreis** – der von CKW kommunizierte mengengewichtete Durchschnitt der dynamischen Netznutzung (Home dynamic 6.65 Rp./kWh, Business dynamic 5.30 Rp./kWh) plus fixe Netzzuschläge, Stromprodukt und Abgaben. Alternativ: Höchstpreis der bekannten Stunden, letzter bekannter Wert oder 0. |
+| Günstigstes Zeitfenster | Länge (1-12 h) des Blocks, den das Plugin in den nächsten 24 h sucht: zusammenhängende Stunden mit dem tiefsten Durchschnittspreis (Total), z. B. für Geschirrspüler, Boiler oder Wallbox. Ergebnis in ''cheap_start_off'' (Start in Stunden ab jetzt), ''cheap_start_clock'' (Startzeit als Stunde) und ''cheap_avg''. Es zählen nur echte CKW-Preise, sonst -1. Unabhängig vom Spotpreis-Optimierer. |
+
+==== MQTT ====
+
+^ Einstellung ^ Beschreibung ^
+| MQTT aktiv | Sendet alle Werte //retained// an den in LoxBerry konfigurierten Broker (MQTT-Widget). |
+| Basis-Topic | Standard ''ckwdynamic''. Alle Werte liegen unter ''<Basis-Topic>/<Schlüssel>''. Beim Speichern wird das Abo ''<Basis-Topic>/+'' automatisch im MQTT-Gateway eingetragen. |
+
+==== UDP ====
+
+^ Einstellung ^ Beschreibung ^
+| UDP aktiv | Sendet alle Werte als ''schlüssel=wert'' direkt an den Miniserver. |
+| Miniserver | Ziel-Miniserver aus der LoxBerry-Konfiguration. |
+| UDP-Port | Empfangsport des virtuellen UDP-Eingangs in Loxone (Standard 7000). |
+| Präfix | Wird jedem Paket vorangestellt (Standard ''ckw''). |
+
+===== Preiskomponenten =====
+
+^ Komponente ^ Bedeutung ^ Quelle ^
+| ''total'' | Netz gesamt + Energie (Stromprodukt) + Konzessionsabgabe + Zusatzkosten | berechnet |
+| ''integrated'' | Netz gesamt + ClassicStrom, wie von der CKW geliefert | CKW-API |
+| ''grid'' | Netz gesamt: dynamische Netznutzung + SDL Swissgrid + Stromreserve + solidarisierte Kosten + Netzzuschlag | CKW-API |
+| ''gridusage'' | Nur der dynamische Netznutzungspreis | CKW-API |
+| ''gridfix'' | Fixe Netzzuschläge (= grid − gridusage) | berechnet |
+| ''energy'' | Energiepreis des gewählten Stromprodukts | API / CKW-Tarifdatei / eigener Preis |
+| ''concession'' | Konzessionsabgabe der gewählten Gemeinde (0, wenn keine gewählt) | CKW-Preisblatt / CKW-Tarifdatei |
+
+Nicht enthalten sind Leistungstarif (CHF/kW/Monat), Messentgelt und Grundgebühren, da diese nicht pro kWh anfallen.
+
+===== Jährlich wechselnde Preise =====
+
+Die CKW passt Netz- und Energiepreise jeweils auf den 1. Januar an. Das Plugin ist so gebaut, dass dafür in der Regel **kein Plugin-Update** nötig ist:
+
+  * **Netzpreise** (inkl. aller fixen Zuschläge) kommen vollständig aus der CKW-API und sind damit immer aktuell.
+  * **ClassicStrom** kommt ebenfalls aus der API.
+  * **BudgetStrom, MeinRegioStrom und die Konzessionsabgaben der Gemeinden** liest das Plugin aus der **maschinenlesbaren Tarifdatei der CKW**. Seit 2026 müssen alle Schweizer Netzbetreiber ihre Tarife bis 31. August in diesem Format (VSE-Standard) veröffentlichen. Das Plugin sucht die Dateien einmal pro Tag auf [[https://www.ckw.ch/energie/strom/stromprodukte/privat|ckw.ch]] und übernimmt neue Jahrespreise selbständig. Sie gelten automatisch ab dem 1. Januar.
+  * Klappt das einmal nicht (Seite umgebaut, Datei fehlerhaft), verwendet das Plugin die zuletzt gelesenen Preise, danach die Tabelle ''tariffs.json'' aus dem GitHub-Repository und zuletzt die mitgelieferte Kopie. Ein erneuter Versuch erfolgt nach 6 Stunden.
+  * Fehlt für das laufende Jahr ein Preis, verwendet das Plugin den letzten bekannten Preis und meldet dies im Log, in der Weboberfläche und im Wert ''price_warning''.
+  * Welche Quellen verwendet werden, zeigt die Weboberfläche unter Einstellungen.
+  * Mit „eigener Preis“ und „Weitere Zusatzkosten“ lässt sich jederzeit von Hand übersteuern.
+  * Die Referenzwerte für den Füllmodus (CKW-Durchschnittspreis, fixe Netzzuschläge, Netzzuschlag, Stromreserve) stehen im Abschnitt ''dynamic_reference'' der ''tariffs.json'' und werden bei Änderungen durch CKW dort nachgetragen (GitHub, wird täglich geladen).
+
+===== Einbindung in Loxone =====
+
+==== Über MQTT (empfohlen) ====
+
+Das MQTT-Gateway von LoxBerry leitet alle Werte unter ''ckwdynamic/+'' an den Miniserver weiter. In Loxone Config pro gewünschtem Wert einen **virtuellen Eingang** anlegen. Der Name ergibt sich aus Topic und Schlüssel, Schrägstriche werden zu Unterstrichen:
+
+^ MQTT-Topic ^ Name des virtuellen Eingangs ^
+| ''ckwdynamic/total_now'' | ''ckwdynamic_total_now'' |
+| ''ckwdynamic/total_rel00'' | ''ckwdynamic_total_rel00'' |
+| ''ckwdynamic/online'' | ''ckwdynamic_online'' |
+
+Die virtuellen Eingänge dürfen **nicht** als „Digitaleingang“ markiert sein. Eine vollständige Liste mit allen Namen und einer kurzen Beschreibung pro Wert zeigt der Reiter **Loxone** im Plugin. Die Beschreibung steht auch als Kommentar in der UDP-Vorlage. Im MQTT-Gateway („Incoming Overview“) sieht man, welche Werte ankommen.
+
+Alle Daten zusätzlich als JSON: ''ckwdynamic/data/json'' (wird bewusst nicht ans Gateway weitergereicht).
+
+==== Über UDP ====
+
+  - In den Plugin-Einstellungen UDP aktivieren, Miniserver und Port wählen, speichern.
+  - Im Reiter **Loxone** die **Loxone-Vorlage (Virtueller UDP-Eingang)** herunterladen.
+  - In Loxone Config unter //Virtuelle Eingänge// die Vorlage importieren und die gewünschten Befehle verwenden.
+
+Die Befehlserkennung lautet jeweils ''<schlüssel>=\v'', z. B. ''total_now=\v''.
+
+==== Spotpreis-Optimierer ====
+
+  - Baustein **Spotpreis-Optimierer** einfügen, Betriebsart **Relativ**.
+  - Eingänge **+0 … +23** mit ''ckwdynamic_total_rel00'' … ''ckwdynamic_total_rel23'' verbinden.
+  - Das Plugin aktualisiert alle 15 Minuten. Der Optimierer verlangt im Relativ-Modus Werte, die in der laufenden Stunde aktualisiert wurden - das ist damit erfüllt.
+  - Stunden ohne Daten (morgen vor ca. 12 Uhr) werden standardmässig mit dem CKW-Durchschnittspreis gefüllt, damit der Optimierer mit realistischen Werten plant. Wie viele Stunden echte Preise haben, zeigt ''hours_avail''. Wer diese Stunden lieber meiden will, wählt „Höchstpreis“.
+
+Wer lieber die Betriebsart **Absolut** nutzt, aktiviert in den Einstellungen „Absolut“ und verbindet die Eingänge 00:00 … 23:00 mit ''ckwdynamic_total_abs00'' … ''ckwdynamic_total_abs23''.
+
+==== Online-Überwachung ====
+
+  * ''online'' = 1, wenn der letzte Abruf bei der CKW geklappt hat und ein Preis für die aktuelle Viertelstunde vorliegt.
+  * ''api_ok'' = Ergebnis des letzten API-Aufrufs, ''data_valid'' = Preis für die aktuelle Viertelstunde vorhanden.
+  * Da MQTT-Werte retained sind, bleibt ''online'' bei einem Ausfall des LoxBerry auf dem letzten Wert stehen. Darum zusätzlich ''last_update_lox'' überwachen: In Loxone mit einem Formel-Baustein ''Loxone-Zeit − last_update_lox'' rechnen. Ist das Ergebnis grösser als 1800 (Sekunden), liefert das Plugin keine Daten mehr.
+
+===== Alle Werte =====
+
+''<c>'' steht für eine Komponente (''total'', ''integrated'', ''grid'', ''gridusage'', ''gridfix'', ''energy'', ''concession'').
+
+^ Schlüssel ^ Beschreibung ^
+| ''<c>_now'' | Preis der aktuellen Viertelstunde (immer für alle Komponenten) |
+| ''<c>_nexthour'' | Durchschnitt der nächsten Stunde |
+| ''<c>_rel00'' … ''<c>_rel23'' | Stundenmittel ab laufender Stunde (+0 … +23) |
+| ''<c>_abs00'' … ''<c>_abs23'' | Stundenmittel heute 00:00 … 23:00 |
+| ''<c>_tmr00'' … ''<c>_tmr23'' | Stundenmittel morgen 00:00 … 23:00 |
+| ''<c>_min'' / ''<c>_max'' / ''<c>_avg'' | Minimum / Maximum / Durchschnitt der nächsten 24 h |
+| ''<c>_minclock'' / ''<c>_maxclock'' | Uhrzeit (Stunde 0-23) des Minimums / Maximums |
+| ''cheap_start_off'' | Start des günstigsten Zeitfensters in Stunden ab jetzt (-1 = nicht genug Daten) |
+| ''cheap_start_clock'' | Start des günstigsten Zeitfensters als Uhrzeit (Stunde) |
+| ''cheap_avg'' | Durchschnittspreis im günstigsten Zeitfenster |
+| ''rank_now'' | Rang der aktuellen Stunde in den nächsten 24 h (1 = günstigste) |
+| ''below_avg'' | 1 = aktuelle Stunde liegt unter dem Durchschnitt |
+| ''hours_avail'' / ''filled_hours'' | Anzahl Stunden mit echten / aufgefüllten Preisen |
+| ''online'' / ''api_ok'' / ''data_valid'' | Status (siehe Online-Überwachung) |
+| ''data_age_min'' | Alter des letzten erfolgreichen Abrufs in Minuten |
+| ''last_update'' / ''last_update_lox'' | Zeitpunkt des letzten erfolgreichen Abrufs (Unix-Zeit / Loxone-Zeit) |
+| ''last_update_text'' | wie oben als Text (nur MQTT) |
+| ''price_source'' | Quelle des Energiepreises (nur MQTT) |
+| ''price_warning'' | Warnung, z. B. fehlender Jahrespreis (nur MQTT) |
+
+Fehlt ein Wert ganz (z. B. keine Daten), wird ''-1'' gesendet.
+
+===== Häufige Fragen =====
+
+**Warum sind die Preise für morgen am Vormittag alle gleich?**\\
+Die CKW veröffentlicht den Folgetag gegen 12 Uhr. Bis dahin werden fehlende Stunden aufgefüllt (Standard: CKW-Durchschnittspreis).
+
+**Stimmt der Preis mit meiner Rechnung überein?**\\
+Die Werte entsprechen den Arbeitspreisen pro kWh. Leistungstarif und Messentgelt sind nicht enthalten. Die Konzessionsabgabe ist enthalten, wenn eine Gemeinde gewählt ist.
+
+**Werden 15-Minuten-Preise unterstützt?**\\
+Die ''…_now''-Werte wechseln alle 15 Minuten. Die Reihen für den Spotpreis-Optimierer sind Stundenmittel, da der Baustein mit Stundenwerten arbeitet.
+
+**Kommen keine Werte in Loxone an?**\\
+Im Plugin den Status prüfen (Ampel), dann im MQTT-Gateway die „Incoming Overview“ ansehen. Das Log ist über den Reiter **Log** erreichbar.
+
+===== Fragen, Fehler, Wünsche =====
+
+Bitte als [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/issues|GitHub Issue]] oder im LoxForum melden.

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="512" height="512">
+  <title>CKW Dynamischer Tarif - LoxBerry Plugin</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0e7490"/><stop offset="1" stop-color="#16a34a"/></linearGradient>
+    <filter id="sh" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="6" dy="7" stdDeviation="5" flood-opacity="0.35"/></filter>
+  </defs>
+  <rect width="1024" height="1024" rx="210" fill="url(#bg)"/>
+  <text x="420" y="330" text-anchor="middle" dominant-baseline="central" font-family="'Arial Black', 'Arial', sans-serif" font-weight="900" font-size="250" fill="#fff">CKW</text>
+  <polygon points="868,192 776,356 840,356 808,468 924,300 858,300 900,192" fill="#fdcc28" stroke="#fff" stroke-width="5" stroke-linejoin="round" filter="url(#sh)"/>
+  <polygon points="110,880 110,715 177,715 177,694 244,694 244,736 311,736 311,760 378,760 378,790 445,790 445,772 512,772 512,730 579,730 579,670 646,670 646,646 713,646 713,700 780,700 780,745 847,745 847,724 914,724 914,880" fill="#fff" fill-opacity="0.27"/>
+  <polyline points="110,715 177,715 177,694 244,694 244,736 311,736 311,760 378,760 378,790 445,790 445,772 512,772 512,730 579,730 579,670 646,670 646,646 713,646 713,700 780,700 780,745 847,745 847,724 914,724" fill="none" stroke="#fff" stroke-width="26" stroke-linejoin="round"/>
+  <line x1="110" y1="895" x2="914" y2="895" stroke="#fff" stroke-opacity="0.8" stroke-width="13"/>
+</svg>

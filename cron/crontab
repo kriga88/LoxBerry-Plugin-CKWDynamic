@@ -1,0 +1,4 @@
+# CKW Dynamischer Tarif - Preise alle 15 Minuten abrufen und an Loxone senden
+#minute hour day_of_month month day_of_week user command
+*/15 * * * * loxberry php REPLACELBPBINDIR/fetch.php > /dev/null 2>&1
+@reboot loxberry sleep 60 && php REPLACELBPBINDIR/fetch.php > /dev/null 2>&1
