@@ -8,13 +8,14 @@
  */
 
 define('CKW_API_URL', getenv('CKW_API_URL') ?: 'https://e-ckw-public-data.de-c1.eu1.cloudhub.io/api/v1/netzinformationen/energie/dynamische-preise');   // Umgebungsvariable nur fuer Tests
-define('CKW_TARIFFS_URL', 'https://raw.githubusercontent.com/kriga88/LoxBerry-Plugin-CKWDynamic/main/tariffs.json');
+define('CKW_TARIFFS_URL', getenv('CKW_TARIFFS_URL') ?: 'https://raw.githubusercontent.com/kriga88/LoxBerry-Plugin-CKWDynamic/main/tariffs.json');   // Umgebungsvariable nur fuer Tests
 define('CKW_TZ', 'Europe/Zurich');
 define('CKW_LOX_EPOCH_OFFSET', 1230768000);   // Loxone-Zeit = Unix-Zeit - 1.1.2009
 // Gemeinden, deren prozentuale Konzessionsabgabe laut CKW-Preisblatt OHNE Stromreserve berechnet wird
 define('CKW_PERCENT_EXCL_RESERVE', 'Ebikon|Escholzmatt-Marbach|Flühli|Hasle|Hergiswil bei Willisau|Honau|Nottwil|Oberkirch|Werthenstein');
-define('CKW_TARIFFS_MAXAGE', 86400);
-define('CKW_TARIFF_CACHE_FORMAT', 2);       // erhoehen, wenn sich die Auswertung der CKW-Tarifdatei aendert          // Preistabellen hoechstens 1x pro Tag laden
+define('CKW_TARIFFS_MAXAGE', 86400);          // Preistabellen hoechstens 1x pro Tag laden
+define('CKW_TARIFFS_RETRY', 6 * 3600);        // nach einem Fehler fruehestens nach 6 Stunden erneut versuchen
+define('CKW_TARIFF_CACHE_FORMAT', 2);         // erhoehen, wenn sich die Auswertung der CKW-Tarifdatei aendert
 define('CKW_TARIFFS_PAGE', getenv('CKW_TARIFFS_PAGE') ?: 'https://www.ckw.ch/energie/strom/stromprodukte/privat');   // verlinkt die maschinenlesbaren Tarifdateien (Umgebungsvariable nur fuer Tests)
 
 // Komponente => Beschreibung (Reihenfolge = Anzeige)
@@ -203,8 +204,8 @@ function ckw_load_config()
  */
 function ckw_save_config(array $cfg)
 {
-	$json = json_encode($cfg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-	if (file_put_contents(ckw_config_file(), $json . "\n", LOCK_EX) === false) {
+	// atomar (Temp-Datei + rename), damit ein gleichzeitig laufender Abruf nie eine halbe Datei liest
+	if (!ckw_write_json(ckw_config_file(), $cfg)) {
 		return false;
 	}
 	ckw_write_subscriptions($cfg);
@@ -224,19 +225,30 @@ function ckw_write_subscriptions(array $cfg)
 // HTTP / JSON-Helfer
 // ---------------------------------------------------------------------------
 
-function ckw_http_get($url, $timeout, &$error, $accept = 'application/json')
+/**
+ * HTTP-Anfrage (GET, oder POST wenn $postBody gesetzt). Liefert den Body bei Status 200, sonst null + $error.
+ */
+function ckw_http_get($url, $timeout, &$error, $accept = 'application/json', $postBody = null, $contentType = 'application/json')
 {
 	$error = null;
+	$headers = array('Accept: ' . $accept);
+	if ($postBody !== null) {
+		$headers[] = 'Content-Type: ' . $contentType;
+	}
 	if (function_exists('curl_init')) {
 		$ch = curl_init($url);
 		curl_setopt_array($ch, array(
 			CURLOPT_RETURNTRANSFER => true,
 			CURLOPT_FOLLOWLOCATION => true,
-			CURLOPT_CONNECTTIMEOUT => 10,
+			CURLOPT_CONNECTTIMEOUT => min(10, $timeout),
 			CURLOPT_TIMEOUT        => $timeout,
 			CURLOPT_USERAGENT      => 'LoxBerry-Plugin-CKWDynamic',
-			CURLOPT_HTTPHEADER     => array('Accept: ' . $accept),
+			CURLOPT_HTTPHEADER     => $headers,
 		));
+		if ($postBody !== null) {
+			curl_setopt($ch, CURLOPT_POST, true);
+			curl_setopt($ch, CURLOPT_POSTFIELDS, $postBody);
+		}
 		$body = curl_exec($ch);
 		$code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
 		if ($body === false) {
@@ -249,11 +261,16 @@ function ckw_http_get($url, $timeout, &$error, $accept = 'application/json')
 		}
 		return $error === null ? $body : null;
 	}
-	$ctx = stream_context_create(array('http' => array(
+	$opts = array(
 		'timeout' => $timeout,
-		'header'  => "Accept: $accept\r\nUser-Agent: LoxBerry-Plugin-CKWDynamic\r\n",
+		'header'  => implode("\r\n", $headers) . "\r\nUser-Agent: LoxBerry-Plugin-CKWDynamic\r\n",
 		'ignore_errors' => true,
-	)));
+	);
+	if ($postBody !== null) {
+		$opts['method'] = 'POST';
+		$opts['content'] = $postBody;
+	}
+	$ctx = stream_context_create(array('http' => $opts));
 	$body = @file_get_contents($url, false, $ctx);
 	$headers = function_exists('http_get_last_response_headers') ? http_get_last_response_headers() : ckw_legacy_headers(get_defined_vars());
 	$status = isset($headers[0]) ? $headers[0] : '';
@@ -285,9 +302,13 @@ function ckw_read_json($file)
 
 function ckw_write_json($file, $data)
 {
-	$tmp = $file . '.tmp';
-	file_put_contents($tmp, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
-	rename($tmp, $file);
+	$tmp = $file . '.' . getmypid() . '.tmp';
+	$json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+	if ($json === false || file_put_contents($tmp, $json . "\n") === false) {
+		@unlink($tmp);
+		return false;
+	}
+	return rename($tmp, $file);
 }
 
 // ---------------------------------------------------------------------------
@@ -459,6 +480,16 @@ function ckw_load_ckw_tariffs($allowNetwork, $log = null)
 	return ($cache && !empty($cache['data']['products'])) ? array('data' => $cache['data'], 'updated' => $cache['updated']) : null;
 }
 
+/** Ein Preiseintrag ist nur gueltig mit Datum und numerischem Preis (Schutz vor fehlerhaften Remote-Daten) */
+function ckw_entry_valid($e)
+{
+	return is_array($e)
+		&& isset($e['valid_from'], $e['rp_kwh'])
+		&& is_string($e['valid_from']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $e['valid_from'])
+		&& is_numeric($e['rp_kwh']) && $e['rp_kwh'] >= -100 && $e['rp_kwh'] <= 200
+		&& (!isset($e['percent']) || (is_numeric($e['percent']) && $e['percent'] >= 0 && $e['percent'] <= 100));
+}
+
 /** Fuehrt zwei Tabellen zusammen; Eintraege von $b ersetzen solche von $a mit gleichem Gueltig-ab-Datum. */
 function ckw_merge_tariffs(array $a, array $b)
 {
@@ -477,7 +508,7 @@ function ckw_merge_tariffs(array $a, array $b)
 			}
 			$byDate = array();
 			foreach (array_merge($old, $newPrices) as $e) {
-				if (is_array($e) && isset($e['valid_from'])) {
+				if (ckw_entry_valid($e)) {
 					$byDate[$e['valid_from']] = $e;
 				}
 			}
@@ -508,7 +539,8 @@ function ckw_merge_tariffs(array $a, array $b)
 function ckw_load_tariffs($remote, $log = null, $allowNetwork = true)
 {
 	$bundled = ckw_read_json(__DIR__ . '/tariffs.json');
-	$data = ckw_tariffs_valid($bundled) ? $bundled : array('products' => array());
+	$empty = array('products' => array(), 'municipalities' => array(), 'dynamic_reference' => array());
+	$data = ckw_tariffs_valid($bundled) ? ckw_merge_tariffs($empty, $bundled) : $empty;
 	$sources = array('mitgeliefert ' . (isset($bundled['updated']) ? $bundled['updated'] : ''));
 	$updated = isset($bundled['updated']) ? $bundled['updated'] : '';
 	$ckwOk = false;
@@ -516,19 +548,21 @@ function ckw_load_tariffs($remote, $log = null, $allowNetwork = true)
 	if ($remote) {
 		// GitHub-Tabelle (Rueckfall, falls CKW die Datei einmal nicht publiziert)
 		$cacheFile = ckw_tariffs_cache();
+		$failFile = ckw_data_dir() . '/tariffs_github.failed';
 		$gh = ckw_read_json($cacheFile);
-		if ($allowNetwork && (!$gh || time() - filemtime($cacheFile) >= CKW_TARIFFS_MAXAGE)) {
+		$stale = !$gh || time() - filemtime($cacheFile) >= CKW_TARIFFS_MAXAGE;
+		$retryOk = !is_file($failFile) || time() - filemtime($failFile) >= CKW_TARIFFS_RETRY;
+		if ($allowNetwork && $stale && $retryOk) {
 			$err = null;
 			$body = ckw_http_get(CKW_TARIFFS_URL, 15, $err);
 			$new = $body !== null ? json_decode($body, true) : null;
 			if (ckw_tariffs_valid($new)) {
 				ckw_write_json($cacheFile, $new);
+				@unlink($failFile);
 				$gh = $new;
 			} else {
-				ckw_log($log, 'DEB', 'GitHub-Preistabelle nicht geladen (' . ($err ?: 'ungültiges Format') . ').');
-				if ($gh) {
-					touch($cacheFile);
-				}
+				ckw_log($log, 'DEB', 'GitHub-Preistabelle nicht geladen (' . ($err ?: 'ungültiges Format') . ') - nächster Versuch in 6 Stunden.');
+				touch($failFile);
 			}
 		}
 		if (ckw_tariffs_valid($gh)) {
@@ -558,6 +592,9 @@ function ckw_entry_for_date(array $entries, $ymd)
 {
 	$best = null;
 	foreach ($entries as $e) {
+		if (!ckw_entry_valid($e)) {
+			continue;
+		}
 		if ($e['valid_from'] <= $ymd && ($best === null || $e['valid_from'] > $best['valid_from'])) {
 			$best = $e;
 		}
@@ -1294,29 +1331,9 @@ function ckw_mqtt_send_gateway(array $messages, &$error)
 		$items[] = $item;
 	}
 	$url = "http://localhost:$port/admin/system/tools/mqtt.php";
-	$body = json_encode($items, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-	if (function_exists('curl_init')) {
-		$ch = curl_init($url);
-		curl_setopt_array($ch, array(
-			CURLOPT_POST           => true,
-			CURLOPT_POSTFIELDS     => $body,
-			CURLOPT_HTTPHEADER     => array('Content-Type: application/json'),
-			CURLOPT_RETURNTRANSFER => true,
-			CURLOPT_CONNECTTIMEOUT => 5,
-			CURLOPT_TIMEOUT        => 20,
-		));
-		$resp = curl_exec($ch);
-		$code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-		$cerr = curl_error($ch);
-	} else {
-		$ctx = stream_context_create(array('http' => array('method' => 'POST', 'header' => "Content-Type: application/json\r\n", 'content' => $body, 'timeout' => 20, 'ignore_errors' => true)));
-		$resp = @file_get_contents($url, false, $ctx);
-		$headers = function_exists('http_get_last_response_headers') ? http_get_last_response_headers() : ckw_legacy_headers(get_defined_vars());
-		$code = (isset($headers[0]) && preg_match('/\s(\d{3})\s/', $headers[0], $m)) ? (int)$m[1] : 0;
-		$cerr = $resp === false ? 'keine Antwort' : '';
-	}
-	if ($resp === false || $code !== 200) {
-		$error = "$url antwortet nicht mit 200 (" . ($code ?: $cerr) . ')';
+	$err = null;
+	if (ckw_http_get($url, 20, $err, '*/*', json_encode($items, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)) === null) {
+		$error = "$url: $err";
 		return false;
 	}
 	return true;
@@ -1392,6 +1409,54 @@ function ckw_udp_template_xml(array $keys, $port, $unit = 'CHF/kWh')
 // Ablauf eines Abrufs (vom Cronjob und von der Weboberflaeche verwendet)
 // ---------------------------------------------------------------------------
 
+/**
+ * Sammelt die Meldungen eines Laufs und schreibt sie erst am Ende ins LoxBerry-Log - und nur,
+ * wenn bei der eingestellten Stufe ueberhaupt etwas zu schreiben ist. LBLog schreibt LOGSTART/LOGEND
+ * unabhaengig vom Loglevel; ohne Puffer stuende bei Stufe "Fehler" jeder erfolgreiche Lauf im Log.
+ */
+class CkwLogBuffer
+{
+	// Schweregrade wie LoxBerry (geschrieben wird, wenn Loglevel >= Schweregrad)
+	public static $SEVERITY = array('CRIT' => 2, 'ERR' => 3, 'WARN' => 4, 'OK' => 5, 'INF' => 6, 'DEB' => 7);
+	private $entries = array();
+	private $echo;
+
+	public function __construct($echo = false)
+	{
+		$this->echo = $echo;
+	}
+
+	public function __call($level, $args)
+	{
+		if (!isset(self::$SEVERITY[$level])) {
+			return;
+		}
+		$this->entries[] = array($level, (string)$args[0]);
+		if ($this->echo) {
+			fwrite(STDERR, "<$level> " . $args[0] . "\n");
+		}
+	}
+
+	/** true, wenn bei diesem Loglevel mindestens eine Meldung geschrieben wuerde */
+	public function relevant($loglevel)
+	{
+		foreach ($this->entries as $e) {
+			if ((int)$loglevel >= self::$SEVERITY[$e[0]]) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Spielt alle Meldungen in ein LBLog-Objekt ein (das filtert selbst nach Loglevel) */
+	public function replay($log)
+	{
+		foreach ($this->entries as $e) {
+			$log->{$e[0]}($e[1]);
+		}
+	}
+}
+
 function ckw_log($log, $level, $msg)
 {
 	if (is_object($log) && is_callable(array($log, $level))) {
@@ -1413,6 +1478,16 @@ function ckw_run(array $cfg, $log = null, ?DateTimeImmutable $now = null)
 	// API abrufen, bei Fehler auf den letzten Abruf zurueckfallen
 	$err = null;
 	$prices = ckw_fetch_api($cfg['tariff'], $now, $err, $log);
+	if ($prices !== null) {
+		// Nur eine Antwort mit Preis fuer die laufende Viertelstunde zaehlt als Erfolg - sonst wuerde
+		// z. B. eine leere Liste bei einer CKW-Stoerung den guten Cache ueberschreiben
+		$nowTs = $now->getTimestamp();
+		$parsed = ckw_parse_slots($prices);
+		if (!isset($parsed[$nowTs - ($nowTs % 900)])) {
+			$err = 'Antwort ohne Preis für die aktuelle Viertelstunde (' . count($parsed) . ' Slots)';
+			$prices = null;
+		}
+	}
 	$cache = ckw_read_json(ckw_cache_file());
 	$apiOk = $prices !== null;
 	if ($apiOk) {
@@ -1483,10 +1558,7 @@ function ckw_run(array $cfg, $log = null, ?DateTimeImmutable $now = null)
 		}
 	} elseif ($published && !empty($published['topics'])) {
 		// MQTT wurde deaktiviert -> alte retained Werte entfernen
-		$mqttErr = null;
-		if (ckw_mqtt_send(array_fill_keys($published['topics'], ''), $mqttErr)) {
-			ckw_write_json(ckw_published_file(), array('topics' => array()));
-		}
+		ckw_mqtt_cleanup($log);
 	}
 	if ($cfg['udp_enabled']) {
 		$udpErr = null;
@@ -1513,6 +1585,25 @@ function ckw_run(array $cfg, $log = null, ?DateTimeImmutable $now = null)
 	);
 	ckw_write_json(ckw_state_file(), $state);
 	return $ok;
+}
+
+/**
+ * Loescht alle vom Plugin publizierten retained Topics (bei Deinstallation).
+ */
+function ckw_mqtt_cleanup($log = null)
+{
+	$published = ckw_read_json(ckw_published_file());
+	if (!$published || empty($published['topics'])) {
+		return true;
+	}
+	$err = null;
+	if (ckw_mqtt_send(array_fill_keys($published['topics'], ''), $err)) {
+		ckw_write_json(ckw_published_file(), array('topics' => array()));
+		ckw_log($log, 'OK', count($published['topics']) . ' retained MQTT-Topics gelöscht.');
+		return true;
+	}
+	ckw_log($log, 'ERR', "MQTT-Topics konnten nicht gelöscht werden: $err");
+	return false;
 }
 
 /** Rundet Gleitkommazahlen rekursiv (vermeidet 0.030299999999999994 im JSON) */

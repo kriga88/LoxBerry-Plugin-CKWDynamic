@@ -3,7 +3,10 @@
  * CKW Dynamischer Tarif - Abruf der Preise und Versand an Loxone.
  * Wird per Cronjob alle 15 Minuten sowie aus der Weboberflaeche aufgerufen.
  *
- * Aufruf: php fetch.php [-v]   (-v = Log zusaetzlich auf der Konsole)
+ * Aufruf: php fetch.php [-v] [--uninstall]
+ *   -v           Meldungen zusaetzlich auf der Konsole
+ *   --uninstall  retained MQTT-Topics des Plugins loeschen (vom Deinstallationsskript)
+ * Exit-Code: 0 = ok, 1 = Fehler, 2 = es laeuft bereits ein Abruf
  */
 
 // Im Cron ist $LBHOMEDIR nicht gesetzt - SDK-Pfad explizit ergaenzen
@@ -15,33 +18,43 @@ require_once "loxberry_log.php";
 require_once __DIR__ . "/ckw_lib.php";
 
 $verbose = in_array('-v', $argv, true);
+$buffer = new CkwLogBuffer($verbose);
+
+if (in_array('--uninstall', $argv, true)) {
+	exit(ckw_mqtt_cleanup($buffer) ? 0 : 1);
+}
 
 // Parallele Laeufe (Cron + "Jetzt abrufen") verhindern
 $lock = fopen(ckw_data_dir() . '/fetch.lock', 'c');
 if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
 	fwrite(STDERR, "Abruf laeuft bereits.\n");
-	exit(0);
+	exit(2);
 }
 
-$log = LBLog::newLog(array(
-	'name'     => 'Abruf',
-	'filename' => "$lbplogdir/fetch.log",
-	'append'   => 1,
-	'addtime'  => 1,
-	'stderr'   => $verbose ? 1 : null,
-));
-$log->LOGSTART('CKW Preisabruf');
-
 $ckwcfg = ckw_load_config();
-$log->DEB('Konfiguration: ' . json_encode($ckwcfg));
+$buffer->DEB('Konfiguration: ' . json_encode($ckwcfg));
 
 try {
-	$ok = ckw_run($ckwcfg, $log);
+	$ok = ckw_run($ckwcfg, $buffer);
 } catch (Throwable $e) {
-	$log->CRIT('Unerwarteter Fehler: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+	$buffer->CRIT('Unerwarteter Fehler: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 	$ok = false;
 }
 
-$log->LOGEND($ok ? 'Abruf erfolgreich' : 'Abruf mit Fehlern beendet');
+// Ins LoxBerry-Log nur schreiben, wenn bei der eingestellten Stufe etwas anfaellt
+// (Stufe "Fehler": nur fehlerhafte Laeufe, Stufe "Info"/"Debug": jeder Lauf)
+$loglevel = (int)LBSystem::pluginloglevel();
+if ($buffer->relevant($loglevel)) {
+	$log = LBLog::newLog(array(
+		'name'     => 'Abruf',
+		'filename' => "$lbplogdir/fetch.log",
+		'append'   => 1,
+		'addtime'  => 1,
+	));
+	$log->LOGSTART('CKW Preisabruf');
+	$buffer->replay($log);
+	$log->LOGEND($ok ? 'Abruf erfolgreich' : 'Abruf mit Fehlern beendet');
+}
+
 flock($lock, LOCK_UN);
 exit($ok ? 0 : 1);

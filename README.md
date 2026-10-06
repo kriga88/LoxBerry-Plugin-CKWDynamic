@@ -8,7 +8,7 @@ Holt alle 15 Minuten die dynamischen Strompreise der CKW (**CKW Netz Home dynami
 
 - Netztarif und Stromprodukt (ClassicStrom, BudgetStrom, MeinRegioStrom, eigener Preis) wählbar
 - Alle Komponenten einzeln: `total`, `integrated`, `grid`, `gridusage`, `gridfix`, `energy`
-- Stundenreihen relativ (+0…+23), absolut (00…23) und morgen; fehlende Stunden werden mit dem Höchstpreis gefüllt
+- Stundenreihen relativ (+0…+23), absolut (00…23) und morgen; fehlende Stunden (morgen vor ca. 12 Uhr, API-Ausfall) werden standardmässig mit dem CKW-Durchschnittspreis gefüllt
 - Min/Max/Ø, günstigstes Zeitfenster, Rang der aktuellen Stunde, Online-Status
 - MQTT: Abo im LoxBerry-MQTT-Gateway wird automatisch angelegt
 - UDP: Loxone-Vorlage zum Herunterladen
@@ -43,7 +43,7 @@ Release bauen:
 ./build.sh
 ```
 
-Danach `release.cfg` (VERSION, ARCHIVEURL) anpassen, taggen (`v0.1.4`) und GitHub-Release erstellen.
+Danach `release.cfg` (VERSION, ARCHIVEURL) anpassen, taggen (`v0.1.5`) und GitHub-Release erstellen.
 
 ## Lizenz
 

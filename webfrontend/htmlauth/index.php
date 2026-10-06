@@ -17,6 +17,7 @@ $ckwcfg = ckw_load_config();
 $tariffs = ckw_load_tariffs($ckwcfg['tariffs_remote'], null, false);   // Anzeige: nur gespeicherte Stände, kein Netzzugriff
 $products = ckw_product_list($tariffs['data']);
 $fetchCmd = 'php ' . escapeshellarg("$lbpbindir/fetch.php");
+$today = ckw_local_time(time(), 'Y-m-d');   // Schweizer Datum (PHP-Standardzeitzone auf dem LoxBerry ist UTC)
 
 // ---------------------------------------------------------------------------
 // Download Loxone-Vorlage (Virtueller UDP-Eingang)
@@ -66,6 +67,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 		exec("$fetchCmd 2>&1", $output, $rc);
 		if ($rc === 0) {
 			$messages[] = 'Preise erfolgreich abgerufen und gesendet.';
+		} elseif ($rc === 2) {
+			$errors[] = 'Es läuft gerade schon ein Abruf (Cronjob oder nach dem Speichern) - bitte in einer Minute erneut versuchen.';
 		} else {
 			$errors[] = 'Abruf mit Fehlern beendet - Details im Log.';
 		}
@@ -166,7 +169,7 @@ if ($state && isset($state['run'])) {
 		<label for="product">Stromprodukt (Energie)</label>
 		<select name="product" id="product">
 			<?php foreach ($products as $k => $n):
-				$pp = $k !== 'custom' ? ckw_product_price($tariffs['data'], $k, date('Y-m-d')) : null;
+				$pp = $k !== 'custom' ? ckw_product_price($tariffs['data'], $k, $today) : null;
 				$label = $n . ($pp ? ' - ' . number_format($pp['rp'], 2, '.', '') . ' Rp./kWh' : '');
 				if (!empty($tariffs['data']['products'][$k]['from_api'])) {
 					$label .= ' (live aus CKW-API)';
@@ -199,11 +202,11 @@ if ($state && isset($state['run'])) {
 				return number_format($fee['rp'], 2, '.', '') . ' Rp./kWh';
 			};
 			foreach (array_keys($tariffs['data']['municipalities']) as $mn):
-				$now = ckw_municipality_fee($tariffs['data'], $mn, date('Y-m-d'));
+				$now = ckw_municipality_fee($tariffs['data'], $mn, $today);
 				$future = ckw_municipality_fee($tariffs['data'], $mn, '9999-12-31');
 				$label = $mn . ' - ' . ($now ? $feeText($now) : 'noch keine Abgabe');
 				if ($future && (!$now || $future['valid_from'] !== $now['valid_from']) && $feeText($future) !== ($now ? $feeText($now) : '')) {
-					$label .= ', ab ' . date('d.m.Y', strtotime($future['valid_from'])) . ': ' . $feeText($future);
+					$label .= ', ab ' . implode('.', array_reverse(explode('-', $future['valid_from']))) . ': ' . $feeText($future);
 				}
 			?>
 				<option value="<?= h($mn) ?>" <?= $ckwcfg['municipality'] === $mn ? 'selected' : '' ?>><?= h($label) ?></option>
@@ -248,7 +251,7 @@ if ($state && isset($state['run'])) {
 		<label for="fill_mode">Fehlende Stunden füllen mit</label>
 		<select name="fill_mode" id="fill_mode">
 			<?php
-			$ref = ckw_reference($tariffs['data'], $ckwcfg['tariff'], date('Y-m-d'));
+			$ref = ckw_reference($tariffs['data'], $ckwcfg['tariff'], $today);
 			$refText = $ref ? number_format($ref['rp'], 2, '.', '') . ' Rp./kWh' : 'nicht hinterlegt';
 			?>
 			<option value="ckwavg" <?= $ckwcfg['fill_mode'] === 'ckwavg' ? 'selected' : '' ?>>CKW-Durchschnittspreis (empfohlen)</option>
@@ -344,7 +347,13 @@ if ($state && isset($state['run'])) {
 		<li>Im Baustein <b>Spotpreis-Optimierer</b> die Betriebsart <b>Relativ</b> wählen.</li>
 		<li>Die Eingänge <b>+0 … +23</b> mit <code>total_rel00 … total_rel23</code> verbinden (bzw. der gewünschten Komponente).</li>
 		<li>Das Plugin aktualisiert alle 15 Minuten - die Relativ-Werte sind damit immer in der laufenden Stunde gültig.</li>
-		<li>Stunden ohne Daten (morgen vor ca. 12 Uhr) werden mit dem Höchstpreis gefüllt, damit der Optimierer dort nicht einschaltet. Wie viele Stunden echt sind, zeigt <code>hours_avail</code>.</li>
+		<?php $fillText = array(
+			'ckwavg' => 'mit dem CKW-Durchschnittspreis gefüllt - der Optimierer plant dort mit einem realistischen Durchschnitt',
+			'max'    => 'mit dem Höchstpreis gefüllt, damit der Optimierer dort nicht einschaltet',
+			'last'   => 'mit dem letzten bekannten Preis gefüllt',
+			'zero'   => 'mit 0 gefüllt - Achtung, der Optimierer hält diese Stunden für die günstigsten',
+		); ?>
+		<li>Stunden ohne Daten (morgen vor ca. 12 Uhr) werden <?= h($fillText[$ckwcfg['fill_mode']]) ?> (Einstellung „Fehlende Stunden füllen mit“). Wie viele Stunden echt sind, zeigt <code>hours_avail</code>.</li>
 		<li>Betriebsart <b>Absolut</b>: Eingänge 00:00 … 23:00 mit <code>total_abs00 … total_abs23</code> verbinden (Option „Absolut“ in den Einstellungen aktivieren).</li>
 	</ol>
 

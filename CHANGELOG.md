@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.5 – 2026-10-07 (Beta)
+- Log: Bei Loglevel „Fehler“ werden nur noch fehlerhafte Abrufe protokolliert (bisher jeder Lauf mit Start/Ende), bei „Info“/„Debug“ weiterhin jeder Lauf
+- Fix: Eine leere oder unvollständige Antwort der CKW-API gilt als Störung und überschreibt die zuletzt gültigen Preise nicht mehr
+- Fix: Fehlerhafte Einträge in den Preistabellen (GitHub/CKW) werden verworfen statt als 0 gerechnet
+- Fix: „Jetzt abrufen“ meldet „Abruf läuft bereits“, statt fälschlich Erfolg zu melden
+- Fix: Weboberfläche verwendet Schweizer Datum (Preise/Abgaben um Mitternacht und an Silvester)
+- Fix: Einstellungen werden atomar gespeichert (kein Lesen halber Dateien durch den Cronjob)
+- Deinstallation entfernt die retained MQTT-Werte vom Broker
+- GitHub-Preistabelle: nach einem Fehler erst nach 6 Stunden erneut versuchen
+- Texte zum Füllmodus im Reiter Loxone und im README korrigiert
+
 ## 0.1.4 – 2026-10-06 (Beta)
 - Fix: Absturz beim Zusammenführen der Preistabelle von GitHub (Infotext in dynamic_reference)
 - Fix: UDP-Werte wieder als `schlüssel=wert` (das LoxBerry-SDK liess das „=“ weg). **Bestehende UDP-Befehle mit `schlüssel\v` bitte auf `schlüssel=\v` ändern bzw. die Vorlage neu importieren.**
