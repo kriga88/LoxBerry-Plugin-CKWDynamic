@@ -319,7 +319,7 @@ if ($state && isset($state['run'])) {
 	$maxv = $known ? max($known) : 1;
 	$cheap = $state['cheap'];
 	?>
-	<p class="ckw-hint">Stunden mit Daten: <?= h($state['hours_avail']) ?>/24<?php if ($cheap): ?> &middot; günstigstes <?= h($ckwcfg['cheap_hours']) ?>-h-Fenster ab <?= h(sprintf('%02d:00', $cheap['start_clock'])) ?> Uhr (Ø <?= h($fmt($cheap['avg'])) ?>)<?php endif; ?></p>
+	<p class="ckw-hint">Stunden mit Daten: <?= h($state['hours_avail']) ?>/24<?php if (!empty($state['ref'])): ?> &middot; CKW-Standard-Durchschnittspreis: <?= h($fmt($state['ref']['total'])) ?> (Netznutzung <?= h($fmt($state['ref']['gridusage'])) ?>)<?php endif; ?><?php if ($cheap): ?> &middot; günstigstes <?= h($ckwcfg['cheap_hours']) ?>-h-Fenster ab <?= h(sprintf('%02d:00', $cheap['start_clock'])) ?> Uhr (Ø <?= h($fmt($cheap['avg'])) ?>)<?php endif; ?></p>
 	<table class="ckw-table">
 		<tr><th>+h</th><th>Uhrzeit</th><th style="text-align:right"><?= h($unit) ?></th><th style="width:50%"></th></tr>
 		<?php foreach ($rel as $i => $v):

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6 – 2026-10-07 (Beta)
+- Neue Ausgänge: `<komponente>_ref` (z. B. `total_ref`) = Preis beim CKW-Standard-Durchschnittspreis (Füllwert) und `gridusage_ref` = von CKW kommunizierter Durchschnittspreis der dynamischen Netznutzung
+- Preis-Seite zeigt den CKW-Standard-Durchschnittspreis an
+
 ## 0.1.5 – 2026-10-07 (Beta)
 - Log: Bei Loglevel „Fehler“ werden nur noch fehlerhafte Abrufe protokolliert (bisher jeder Lauf mit Start/Ende), bei „Info“/„Debug“ weiterhin jeder Lauf
 - Fix: Eine leere oder unvollständige Antwort der CKW-API gilt als Störung und überschreibt die zuletzt gültigen Preise nicht mehr

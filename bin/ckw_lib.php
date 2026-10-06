@@ -1055,6 +1055,11 @@ function ckw_calculate(array $raw, array $cfg, array $tariffs, DateTimeImmutable
 
 	$res['data_valid'] = isset($slots[$slotTs]);
 
+	// Standard-Durchschnittspreis (CKW) fuer die laufende Stunde - wird immer ausgegeben (<c>_ref)
+	$rm = array();
+	$refSlots = ckw_reference_fill(array($hourTs), $raw, $cfg, $tariffs, $rm);
+	$res['ref'] = $refSlots ? $refSlots[$hourTs] : null;
+
 	// Fuellwerte (CKW-Durchschnittspreis) fuer alle Stunden ohne echte Daten vorberechnen
 	$res['fill'] = null;
 	if ($cfg['fill_mode'] === 'ckwavg') {
@@ -1160,7 +1165,10 @@ function ckw_build_outputs(array $res, array $cfg, array $status)
 		$v[$c . '_max']      = $st ? ckw_fmt($st['max'], $cfg) : '-1';
 		$v[$c . '_maxclock'] = $st ? (string)$st['max_clock'] : '-1';
 		$v[$c . '_avg']      = $st ? ckw_fmt($st['avg'], $cfg) : '-1';
+		$v[$c . '_ref']      = $res['ref'] !== null ? ckw_fmt($res['ref'][$c], $cfg) : '-1';
 	}
+	// Von CKW kommunizierter Durchschnittspreis der dynamischen Netznutzung (immer)
+	$v['gridusage_ref'] = $res['ref'] !== null ? ckw_fmt($res['ref']['gridusage'], $cfg) : '-1';
 
 	$v['cheap_start_off']   = $res['cheap'] ? (string)$res['cheap']['start_off'] : '-1';
 	$v['cheap_start_clock'] = $res['cheap'] ? (string)$res['cheap']['start_clock'] : '-1';
@@ -1229,6 +1237,9 @@ function ckw_key_description($key, $unit = 'CHF/kWh')
 		case 'min':      return "$c: tiefster Stundenpreis der nächsten 24 h ($unit)";
 		case 'max':      return "$c: höchster Stundenpreis der nächsten 24 h ($unit)";
 		case 'avg':      return "$c: Durchschnitt der nächsten 24 h ($unit)";
+		case 'ref':      return $m[1] === 'gridusage'
+			? "Standard-Durchschnittspreis der CKW für die dynamische Netznutzung ($unit)"
+			: "$c beim CKW-Standard-Durchschnittspreis (Netznutzung im Jahresmittel, sonst aktuelle Preise) - Füllwert für fehlende Stunden ($unit)";
 		case 'minclock': return "$c: Uhrzeit (Stunde) des tiefsten Preises";
 		case 'maxclock': return "$c: Uhrzeit (Stunde) des höchsten Preises";
 	}
@@ -1383,7 +1394,7 @@ function ckw_key_is_price($key)
 		return true;
 	}
 	// nur echte Komponenten (sonst wuerde z. B. rank_now als Preis gelten)
-	return preg_match('/^([a-z]+)_(now|nexthour|min|max|avg|rel\d{2}|abs\d{2}|tmr\d{2})$/', $key, $m) === 1 && isset($CKW_COMPONENTS[$m[1]]);
+	return preg_match('/^([a-z]+)_(now|nexthour|min|max|avg|ref|rel\d{2}|abs\d{2}|tmr\d{2})$/', $key, $m) === 1 && isset($CKW_COMPONENTS[$m[1]]);
 }
 
 /**
@@ -1629,6 +1640,7 @@ function ckw_state_payload(array $res, array $out, array $cfg)
 		'stats'      => $res['stats'],
 		'cheap'      => $res['cheap'],
 		'fill'       => $res['fill'],
+		'ref'        => $res['ref'],
 		'fill_mode'  => $cfg['fill_mode'],
 		'hours_avail'=> $res['hours_avail'],
 		'meta'       => $res['meta'],

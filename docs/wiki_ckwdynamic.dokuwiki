@@ -1,10 +1,11 @@
 ====== CKW Dynamischer Tarif ======
-/* Plugin-Daten (Wiki-Formular): Autor Christian Stutz | Beschreibung: Nur Schweiz (CKW-Netzgebiet Zentralschweiz): holt alle 15 Minuten die dynamischen Strompreise der CKW (Netz Home/Business dynamic) und sendet sie per MQTT oder UDP an Loxone - passend für den Spotpreis-Optimierer | Logo :plugins:ckwdynamic:logo.png | Status Beta | Version 0.1.5 | Min. LB 3.0 | Release Download https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v0.1.5.zip | Sprachen Deutsch | Diskussion https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/issues */
+/* Plugin-Daten (Wiki-Formular): Autor Christian Stutz | Beschreibung: Nur Schweiz (CKW-Netzgebiet Zentralschweiz): holt alle 15 Minuten die dynamischen Strompreise der CKW (Netz Home/Business dynamic) und sendet sie per MQTT oder UDP an Loxone - passend für den Spotpreis-Optimierer | Logo :plugins:ckwdynamic:logo.png | Status Beta | Version 0.1.6 | Min. LB 3.0 | Release Download https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v0.1.6.zip | Sprachen Deutsch | Diskussion https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/issues */
 
 Quellcode: [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic|GitHub]]
 
 ++++ Versionshistorie |
 
+  * **0.1.6** (2026-10) - Neue Ausgänge ''<c>_ref'' und ''gridusage_ref'' (CKW-Standard-Durchschnittspreis)
   * **0.1.5** (2026-10) - Log bei Stufe „Fehler“ nur noch mit Fehlern, robuster bei CKW-Störungen, Deinstallation entfernt MQTT-Werte
   * **0.1.4** (2026-10) - UDP-Werte mit „=“, Loxone-Vorlage mit Einheit, Absturz mit GitHub-Preistabelle behoben
   * **0.1.3** (2026-10) - Erste Beta-Version
@@ -40,7 +41,7 @@ Das Plugin ist ein privates Community-Projekt und steht in keiner Verbindung zur
 
 Das Plugin-ZIP gibt es bei den [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/releases|GitHub Releases]]. In der LoxBerry-Pluginverwaltung kann der Link zum ZIP direkt eingefügt werden, z. B. für die aktuelle Version:
 
-''https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v0.1.5.zip''
+''https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v0.1.6.zip''
 
 ===== Installation =====
 
@@ -144,7 +145,7 @@ Das Plugin sendet die Werte als ''schlüssel=wert'' direkt an einen **Virtuellen
 
 ^ Vorlage ^ Inhalt ^
 | Port | 7000 (bei anderem Port im Plugin in Loxone anpassen) |
-| Befehle | alle ''…_now'', ''total_rel00'' … ''total_rel23'' (Spotpreis-Optimierer), Min/Max/Ø mit Uhrzeit, günstigstes Zeitfenster, Rang, Status- und Zeitwerte – passend zu den Standardeinstellungen des Plugins |
+| Befehle | alle ''…_now'', ''total_rel00'' … ''total_rel23'' (Spotpreis-Optimierer), Min/Max/Ø mit Uhrzeit, CKW-Standard-Durchschnittspreis (''total_ref'', ''gridusage_ref''), günstigstes Zeitfenster, Rang, Status- und Zeitwerte – passend zu den Standardeinstellungen des Plugins |
 | Befehlserkennung | ''<schlüssel>=\v'', z. B. ''total_rel00=\v'' |
 | Einheit | ''<v.3>'' für Preise, ''<v>'' für ganze Zahlen und Status |
 | Kommentar | Kurzbeschreibung jedes Werts |
@@ -180,6 +181,8 @@ Wer lieber die Betriebsart **Absolut** nutzt, aktiviert in den Einstellungen „
 | ''<c>_tmr00'' … ''<c>_tmr23'' | Stundenmittel morgen 00:00 … 23:00 |
 | ''<c>_min'' / ''<c>_max'' / ''<c>_avg'' | Minimum / Maximum / Durchschnitt der nächsten 24 h |
 | ''<c>_minclock'' / ''<c>_maxclock'' | Uhrzeit (Stunde 0-23) des Minimums / Maximums |
+| ''<c>_ref'' | Wert der Komponente beim CKW-Standard-Durchschnittspreis (dynamische Netznutzung im Jahresmittel, übrige Anteile aktuell) – derselbe Wert, mit dem fehlende Stunden gefüllt werden |
+| ''gridusage_ref'' | Von CKW kommunizierter Standard-Durchschnittspreis der dynamischen Netznutzung (Home dynamic 6.65, Business dynamic 5.30 Rp./kWh exkl. MwSt), immer gesendet |
 | ''cheap_start_off'' | Start des günstigsten Zeitfensters in Stunden ab jetzt (-1 = nicht genug Daten) |
 | ''cheap_start_clock'' | Start des günstigsten Zeitfensters als Uhrzeit (Stunde) |
 | ''cheap_avg'' | Durchschnittspreis im günstigsten Zeitfenster |
