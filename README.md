@@ -2,6 +2,8 @@
 
 # LoxBerry-Plugin: CKW Dynamischer Tarif
 
+**Nur für die Schweiz:** für Kundinnen und Kunden der CKW (Centralschweizerische Kraftwerke, Zentralschweiz) mit dynamischem Netztarif.
+
 Holt alle 15 Minuten die dynamischen Strompreise der CKW (**CKW Netz Home dynamic** / **Business dynamic**) über die öffentliche CKW-API und stellt sie dem Loxone Miniserver per **MQTT** oder **UDP** zur Verfügung – aufbereitet für den Baustein **Spotpreis-Optimierer**.
 
 - Netztarif und Stromprodukt (ClassicStrom, BudgetStrom, MeinRegioStrom, eigener Preis) wählbar

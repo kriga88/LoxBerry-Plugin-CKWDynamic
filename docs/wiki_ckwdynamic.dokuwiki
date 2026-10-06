@@ -1,5 +1,5 @@
 ====== CKW Dynamischer Tarif ======
-/* Plugin-Daten (Wiki-Formular): Autor Christian Stutz | Logo :plugins:ckwdynamic:logo.png | Status Beta | Version 0.1.3 | Min. LB 3.0 | Release Download https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v0.1.3.zip | Sprachen Deutsch | Diskussion https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/issues */
+/* Plugin-Daten (Wiki-Formular): Autor Christian Stutz | Beschreibung: Nur Schweiz (CKW-Netzgebiet Zentralschweiz): holt alle 15 Minuten die dynamischen Strompreise der CKW (Netz Home/Business dynamic) und sendet sie per MQTT oder UDP an Loxone - passend für den Spotpreis-Optimierer | Logo :plugins:ckwdynamic:logo.png | Status Beta | Version 0.1.3 | Min. LB 3.0 | Release Download https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v0.1.3.zip | Sprachen Deutsch | Diskussion https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/issues */
 
 Quellcode: [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic|GitHub]]
 
@@ -13,7 +13,7 @@ Quellcode: [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic|GitHub]]
 
 ===== Funktion des Plugins =====
 
-Die CKW (Centralschweizerische Kraftwerke) bietet mit **CKW Netz Home dynamic** und **CKW Netz Business dynamic** einen dynamischen Netztarif an: Der Preis für die Netznutzung ändert sich alle 15 Minuten und wird täglich gegen Mittag für den Folgetag veröffentlicht. Das Plugin holt diese Preise über die öffentliche Schnittstelle der CKW und stellt sie dem Loxone Miniserver zur Verfügung - passend aufbereitet für den Baustein **Spotpreis-Optimierer**.
+Die CKW (Centralschweizerische Kraftwerke AG, Netzbetreiberin in der **Zentralschweiz**, v. a. Kanton Luzern) bietet mit **CKW Netz Home dynamic** und **CKW Netz Business dynamic** einen dynamischen Netztarif an: Der Preis für die Netznutzung ändert sich alle 15 Minuten und wird täglich gegen Mittag für den Folgetag veröffentlicht. Das Plugin holt diese Preise über die öffentliche Schnittstelle der CKW und stellt sie dem Loxone Miniserver zur Verfügung - passend aufbereitet für den Baustein **Spotpreis-Optimierer**.
 
   * Abruf alle 15 Minuten (Cronjob), zusätzlich nach jedem Neustart und manuell per Knopfdruck
   * Netztarif wählbar: Home dynamic (< 50 MWh/Jahr) oder Business dynamic (ab 50 MWh/Jahr)
@@ -25,6 +25,10 @@ Die CKW (Centralschweizerische Kraftwerke) bietet mit **CKW Netz Home dynamic** 
   * Min/Max/Durchschnitt der nächsten 24 Stunden, günstigstes Zeitfenster, Rang der aktuellen Stunde
   * Online-Status und Zeitstempel zur Überwachung
   * Ausgabe per **MQTT** (LoxBerry-Broker, Abo im MQTT-Gateway wird automatisch angelegt) und/oder **UDP** (Vorlage für Loxone Config zum Herunterladen)
+
+<WRAP center round important 100%>
+**Nur für die Schweiz:** Das Plugin ist ausschliesslich für Kundinnen und Kunden der CKW mit dynamischem Netztarif gedacht. Alle Preise in CHF bzw. Rappen, MwSt nach Schweizer Satz (8.1 %). Für Netzbetreiber in Deutschland oder Österreich gibt es eigene Spotpreis-Plugins.
+</WRAP>
 
 <WRAP center round info 100%>
 Das Plugin ist ein privates Community-Projekt und steht in keiner Verbindung zur CKW AG. Massgebend für die Abrechnung sind ausschliesslich die Preise und Preisblätter der CKW.
