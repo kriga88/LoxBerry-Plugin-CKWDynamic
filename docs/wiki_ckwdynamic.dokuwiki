@@ -1,10 +1,11 @@
 ====== CKW Dynamischer Tarif ======
-/* Plugin-Daten (Wiki-Formular): Autor Christian Stutz | Beschreibung: Nur Schweiz (CKW-Netzgebiet Zentralschweiz): holt alle 15 Minuten die dynamischen Strompreise der CKW (Netz Home/Business dynamic) und sendet sie per MQTT oder UDP an Loxone - passend für den Spotpreis-Optimierer | Logo :plugins:ckwdynamic:logo.png | Status Beta | Version 0.1.3 | Min. LB 3.0 | Release Download https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v0.1.3.zip | Sprachen Deutsch | Diskussion https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/issues */
+/* Plugin-Daten (Wiki-Formular): Autor Christian Stutz | Beschreibung: Nur Schweiz (CKW-Netzgebiet Zentralschweiz): holt alle 15 Minuten die dynamischen Strompreise der CKW (Netz Home/Business dynamic) und sendet sie per MQTT oder UDP an Loxone - passend für den Spotpreis-Optimierer | Logo :plugins:ckwdynamic:logo.png | Status Beta | Version 0.1.4 | Min. LB 3.0 | Release Download https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v0.1.4.zip | Sprachen Deutsch | Diskussion https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/issues */
 
 Quellcode: [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic|GitHub]]
 
 ++++ Versionshistorie |
 
+  * **0.1.4** (2026-10) - UDP-Werte mit „=“, Loxone-Vorlage mit Einheit, Absturz mit GitHub-Preistabelle behoben
   * **0.1.3** (2026-10) - Erste Beta-Version
 
 ++++
@@ -38,7 +39,7 @@ Das Plugin ist ein privates Community-Projekt und steht in keiner Verbindung zur
 
 Das Plugin-ZIP gibt es bei den [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/releases|GitHub Releases]]. In der LoxBerry-Pluginverwaltung kann der Link zum ZIP direkt eingefügt werden, z. B. für die aktuelle Version:
 
-''https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v0.1.3.zip''
+''https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v0.1.4.zip''
 
 ===== Installation =====
 
@@ -89,7 +90,7 @@ Automatische Updates können in der Plugin-Verwaltung aktiviert werden.
 | UDP aktiv | Sendet alle Werte als ''schlüssel=wert'' direkt an den Miniserver. |
 | Miniserver | Ziel-Miniserver aus der LoxBerry-Konfiguration. |
 | UDP-Port | Empfangsport des virtuellen UDP-Eingangs in Loxone (Standard 7000). |
-| Präfix | Wird jedem Paket vorangestellt (Standard ''ckw''). |
+| Präfix | Optional, normalerweise leer. Wird nur vorne an jedes Paket gestellt (z. B. zur Unterscheidung im UDP-Monitor), für die Befehlserkennung nicht nötig. |
 
 ===== Preiskomponenten =====
 
@@ -134,11 +135,22 @@ Alle Daten zusätzlich als JSON: ''ckwdynamic/data/json'' (wird bewusst nicht an
 
 ==== Über UDP ====
 
-  - In den Plugin-Einstellungen UDP aktivieren, Miniserver und Port wählen, speichern.
-  - Im Reiter **Loxone** die **Loxone-Vorlage (Virtueller UDP-Eingang)** herunterladen.
-  - In Loxone Config unter //Virtuelle Eingänge// die Vorlage importieren und die gewünschten Befehle verwenden.
+Das Plugin sendet die Werte als ''schlüssel=wert'' direkt an einen **Virtuellen UDP-Eingang** des Miniservers.
 
-Die Befehlserkennung lautet jeweils ''<schlüssel>=\v'', z. B. ''total_now=\v''.
+  - In den Plugin-Einstellungen **UDP** aktivieren, Miniserver und Port (Standard 7000) wählen, speichern. Das Feld „Präfix“ leer lassen.
+  - Loxone-Vorlage herunterladen: **[[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/raw/main/docs/loxone-vorlagen/VIU_CKW_Dynamisch_UDP.xml|VIU_CKW_Dynamisch_UDP.xml]]** (zeigt der Browser die Datei nur an: Rechtsklick → „Link speichern unter“).
+  - In Loxone Config den Miniserver → **Virtuelle Eingänge** markieren → **Vorlage importieren** → Datei wählen. Danach den UDP-Eingang einfügen und in den Miniserver speichern.
+
+^ Vorlage ^ Inhalt ^
+| Port | 7000 (bei anderem Port im Plugin in Loxone anpassen) |
+| Befehle | alle ''…_now'', ''total_rel00'' … ''total_rel23'' (Spotpreis-Optimierer), Min/Max/Ø mit Uhrzeit, günstigstes Zeitfenster, Rang, Status- und Zeitwerte – passend zu den Standardeinstellungen des Plugins |
+| Befehlserkennung | ''<schlüssel>=\v'', z. B. ''total_rel00=\v'' |
+| Einheit | ''<v.3>'' für Preise, ''<v>'' für ganze Zahlen und Status |
+| Kommentar | Kurzbeschreibung jedes Werts |
+
+Wer im Plugin weitere Komponenten oder die Absolut-/Morgen-Reihen auswählt, lädt die passende Vorlage direkt im Plugin unter **Loxone → Loxone-Vorlage herunterladen**. Texte (z. B. ''last_update_text'') lassen sich per UDP nicht übertragen, dafür MQTT verwenden.
+
+Für **MQTT** gibt es keine Vorlage: Loxone Config kann normale virtuelle Eingänge nicht importieren. Dort pro Wert einen Virtuellen Eingang ''ckwdynamic_<schlüssel>'' von Hand anlegen (siehe oben).
 
 ==== Spotpreis-Optimierer ====
 

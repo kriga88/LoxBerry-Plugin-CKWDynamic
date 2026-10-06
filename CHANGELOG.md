@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4 – 2026-10-06 (Beta)
+- Fix: Absturz beim Zusammenführen der Preistabelle von GitHub (Infotext in dynamic_reference)
+- Fix: UDP-Werte wieder als `schlüssel=wert` (das LoxBerry-SDK liess das „=“ weg). **Bestehende UDP-Befehle mit `schlüssel\v` bitte auf `schlüssel=\v` ändern bzw. die Vorlage neu importieren.**
+- Loxone-Vorlage mit Einheit (`<v.3>` für Preise, `<v>` für ganze Zahlen) und ohne Präfix; Standard-Präfix im Plugin leer
+- MQTT-Gateway-Vorlage entfernt (Loxone importiert nur UDP-Vorlagen)
+
 ## 0.1.3 – 2026-10-xx (Beta)
 - Hinweistext zur Einstellung „Günstigstes Zeitfenster“
 

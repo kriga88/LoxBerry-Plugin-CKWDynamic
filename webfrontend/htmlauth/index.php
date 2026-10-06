@@ -22,29 +22,12 @@ $fetchCmd = 'php ' . escapeshellarg("$lbpbindir/fetch.php");
 // Download Loxone-Vorlage (Virtueller UDP-Eingang)
 // ---------------------------------------------------------------------------
 if (isset($_GET['download']) && $_GET['download'] === 'udp') {
-	// Hinweise der SDK-Bibliothek unter neueren PHP-Versionen duerfen das XML nicht verunreinigen
-	error_reporting(error_reporting() & ~E_DEPRECATED);
-	require_once "loxberry_loxonetemplatebuilder.php";
 	$state = ckw_read_json(ckw_state_file());
 	$keys = ($state && isset($state['values'])) ? array_keys($state['values']) : array();
-	$vi = new VirtualInUdp(array(
-		'Title'   => 'CKW Dynamischer Tarif',
-		'Comment' => 'LoxBerry-Plugin ckwdynamic',
-		'Address' => '',
-		'Port'    => $ckwcfg['udp_port'],
-	));
-	foreach ($keys as $k) {
-		$vi->VirtualInUdpCmd(array(
-			'Title'   => 'CKW ' . $k,
-			'Comment' => ckw_key_description($k, $state && isset($state['unit']) ? $state['unit'] : 'CHF/kWh'),
-			'Check'   => $k . '=\v',
-			'Analog' => true,
-			'Signed' => true,
-		));
-	}
+	$xml = ckw_udp_template_xml($keys, $ckwcfg['udp_port'], $state && isset($state['unit']) ? $state['unit'] : 'CHF/kWh');
 	header('Content-Type: application/xml; charset=utf-8');
 	header('Content-Disposition: attachment; filename="VIU_CKW_Dynamisch.xml"');
-	echo $vi->output();
+	echo $xml;
 	exit;
 }
 
@@ -297,9 +280,10 @@ if ($state && isset($state['run'])) {
 		<input type="number" min="1" max="65535" name="udp_port" id="udp_port" value="<?= h($ckwcfg['udp_port']) ?>">
 	</div>
 	<div class="ui-field-contain">
-		<label for="udp_prefix">Präfix</label>
+		<label for="udp_prefix">Präfix (optional)</label>
 		<input type="text" name="udp_prefix" id="udp_prefix" value="<?= h($ckwcfg['udp_prefix']) ?>">
 	</div>
+	<p class="ckw-hint">Normalerweise leer lassen. Ein Präfix wird nur vorne an jedes UDP-Paket gestellt (z. B. zur Unterscheidung im UDP-Monitor) und ist für die Befehlserkennung <code>schlüssel=\v</code> nicht nötig. Die Loxone-Vorlage funktioniert mit und ohne Präfix.</p>
 
 	<button type="submit" data-icon="check">Speichern</button>
 </form>

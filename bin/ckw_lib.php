@@ -85,7 +85,7 @@ function ckw_defaults()
 		'udp_enabled'      => false,
 		'udp_msnr'         => 1,
 		'udp_port'         => 7000,
-		'udp_prefix'       => 'ckw',
+		'udp_prefix'       => '',
 	);
 }
 
@@ -467,6 +467,9 @@ function ckw_merge_tariffs(array $a, array $b)
 			continue;
 		}
 		foreach ($b[$sec] as $key => $entry) {
+			if (!is_array($entry) || (isset($a[$sec][$key]) && !is_array($a[$sec][$key]))) {
+				continue;   // Infotexte o. ae. ueberspringen
+			}
 			$newPrices = $sec === 'products' && isset($entry['prices']) ? $entry['prices'] : $entry;
 			$old = array();
 			if (isset($a[$sec][$key])) {
@@ -474,7 +477,9 @@ function ckw_merge_tariffs(array $a, array $b)
 			}
 			$byDate = array();
 			foreach (array_merge($old, $newPrices) as $e) {
-				$byDate[$e['valid_from']] = $e;
+				if (is_array($e) && isset($e['valid_from'])) {
+					$byDate[$e['valid_from']] = $e;
+				}
 			}
 			ksort($byDate);
 			if ($sec === 'products') {
@@ -1317,15 +1322,70 @@ function ckw_mqtt_send_gateway(array $messages, &$error)
 	return true;
 }
 
+/**
+ * Baut die UDP-Pakete selbst ("praefix: key=wert key=wert ...", max. 220 Zeichen).
+ * msudp_send() aus dem LoxBerry-SDK laesst das "=" weg (globale $udp_delimiter wird in der
+ * Funktion nicht importiert) - deshalb wird nur der Rohstring-Modus des SDK verwendet.
+ */
+function ckw_udp_packets(array $values, $prefix)
+{
+	$head = $prefix !== '' ? "$prefix: " : '';
+	$packets = array();
+	$line = '';
+	foreach ($values as $k => $v) {
+		$pair = "$k=$v ";
+		if ($line !== '' && strlen($head . $line . $pair) > 220) {
+			$packets[] = rtrim($head . $line);
+			$line = '';
+		}
+		$line .= $pair;
+	}
+	if ($line !== '') {
+		$packets[] = rtrim($head . $line);
+	}
+	return $packets;
+}
+
 function ckw_udp_send(array $values, array $cfg, &$error)
 {
 	$error = null;
-	$res = msudp_send($cfg['udp_msnr'], $cfg['udp_port'], $cfg['udp_prefix'], $values);
-	if ($res !== 'OK') {
-		$error = "UDP-Versand an Miniserver {$cfg['udp_msnr']} Port {$cfg['udp_port']} fehlgeschlagen.";
-		return false;
+	foreach (ckw_udp_packets($values, $cfg['udp_prefix']) as $packet) {
+		if (msudp_send($cfg['udp_msnr'], $cfg['udp_port'], '', $packet) !== 'OK') {
+			$error = "UDP-Versand an Miniserver {$cfg['udp_msnr']} Port {$cfg['udp_port']} fehlgeschlagen.";
+			return false;
+		}
 	}
 	return true;
+}
+
+/** true fuer Werte, die ein Preis sind (Einheit <v.3>), sonst ganze Zahl / Status (<v>) */
+function ckw_key_is_price($key)
+{
+	global $CKW_COMPONENTS;
+	if ($key === 'cheap_avg') {
+		return true;
+	}
+	// nur echte Komponenten (sonst wuerde z. B. rank_now als Preis gelten)
+	return preg_match('/^([a-z]+)_(now|nexthour|min|max|avg|rel\d{2}|abs\d{2}|tmr\d{2})$/', $key, $m) === 1 && isset($CKW_COMPONENTS[$m[1]]);
+}
+
+/**
+ * Loxone-Vorlage "Virtueller UDP-Eingang" mit Einheit pro Befehl.
+ * (Eigene Ausgabe, da der LoxBerry-Template-Builder kein Unit-Attribut kennt.)
+ */
+function ckw_udp_template_xml(array $keys, $port, $unit = 'CHF/kWh')
+{
+	$e = function ($t) { return htmlspecialchars((string)$t, ENT_XML1 | ENT_QUOTES, 'UTF-8'); };
+	$digital = array('online', 'api_ok', 'data_valid', 'below_avg');
+	$x = '<?xml version="1.0" encoding="utf-8"?>' . "\r\n";
+	$x .= '<VirtualInUdp Title="CKW Dynamischer Tarif" Comment="LoxBerry-Plugin ckwdynamic" Address="" Port="' . (int)$port . '">' . "\r\n";
+	foreach ($keys as $k) {
+		$x .= "\t" . '<VirtualInUdpCmd Title="' . $e('CKW ' . $k) . '" Comment="' . $e(ckw_key_description($k, $unit)) . '" Address=""'
+			. ' Check="' . $e($k . '=\v') . '" Signed="true" Analog="' . (in_array($k, $digital, true) ? 'false' : 'true') . '"'
+			. ' SourceValLow="0" DestValLow="0" SourceValHigh="100" DestValHigh="100" DefVal="0" MinVal="-2147483647" MaxVal="2147483647"'
+			. ' Unit="' . $e(ckw_key_is_price($k) ? '<v.3>' : '<v>') . '"/>' . "\r\n";
+	}
+	return $x . '</VirtualInUdp>' . "\r\n";
 }
 
 // ---------------------------------------------------------------------------
