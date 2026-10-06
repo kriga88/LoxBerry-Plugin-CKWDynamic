@@ -49,8 +49,8 @@
             ]
         }
     },
+    "dynamic_reference_info": "Netznutzung dynamisch: mengengewichteter Durchschnittspreis laut ckw.ch/dynamic (Fuellwert fuer fehlende Stunden). grid_fix = SDL + Stromreserve + solidarisierte Kosten + Netzzuschlag. Alle Werte Rp./kWh exkl. MwSt.",
     "dynamic_reference": {
-        "_info": "Netznutzung dynamisch: mengengewichteter Durchschnittspreis laut ckw.ch/dynamic (Fuellwert fuer fehlende Stunden). grid_fix = SDL + Stromreserve + solidarisierte Kosten + Netzzuschlag. Alle Werte Rp./kWh exkl. MwSt.",
         "home_dynamic": [
             {
                 "valid_from": "2026-01-01",
