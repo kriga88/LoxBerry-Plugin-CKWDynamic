@@ -267,7 +267,7 @@ if ($state && isset($state['run'])) {
 	</div>
 	<p class="ckw-hint">Sucht in den nächsten 24 Stunden den zusammenhängenden Block dieser Länge mit dem tiefsten Durchschnittspreis (Total) – z. B. für Boiler, Geschirrspüler oder Wallbox. Ergebnis: <code>cheap_start_off</code> (Start in Stunden ab jetzt), <code>cheap_start_clock</code> (Startzeit als Stunde 0–23) und <code>cheap_avg</code> (Ø-Preis). Es zählen nur echte CKW-Preise; ist kein Block möglich, wird -1 gesendet. Unabhängig vom Spotpreis-Optimierer.</p>
 
-	<h3 class="ckw-section">Loxone Spotpreis-Optimierer im Spotmarkt-Modus „CKW“ (Vorabversion)</h3>
+	<h3 class="ckw-section">Loxone Spotpreis-Optimierer im Spotmarkt-Modus „CKW“</h3>
 	<label><input type="checkbox" name="formula_enabled" value="1" <?= $ckwcfg['formula_enabled'] ? 'checked' : '' ?>> Korrekturwerte für die Preisberechnung ausgeben (<code>formula_factor</code>, <code>formula_offset</code>)</label>
 	<p class="ckw-hint">Für den Fall, dass im Spotpreis-Optimierer der Spotmarkt-Modus mit Anbieter CKW (15 Minuten) verwendet wird: Loxone liefert dort einen festen CKW-Preis (vermutlich Netz + ClassicStrom, exkl. MwSt, ohne Konzession). Mit der Preisberechnung <code>I1*I2+I3</code> und diesen Werten wird daraus dein Endpreis mit Stromprodukt, Konzessionsabgabe, Zusatzkosten und MwSt. Details im Reiter <b>Loxone</b>.</p>
 
@@ -362,7 +362,7 @@ if ($state && isset($state['run'])) {
 	</ol>
 
 	<?php if ($ckwcfg['formula_enabled']): $fv = $state && isset($state['values']['formula_factor']) ? $state['values'] : null; ?>
-	<h3 class="ckw-section">Spotmarkt-Modus „CKW“ mit Korrekturwerten (Vorabversion)</h3>
+	<h3 class="ckw-section">Spotmarkt-Modus „CKW“ mit Korrekturwerten</h3>
 	<ol>
 		<li>Im Spotpreis-Optimierer den Spotmarkt-Modus mit Anbieter <b>CKW</b> verwenden (15-Minuten-Auflösung möglich).</li>
 		<li>In den Eigenschaften die <b>Preisberechnung</b> auf <code>I1*I2+I3</code> setzen.</li>

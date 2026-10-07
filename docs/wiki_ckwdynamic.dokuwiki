@@ -1,11 +1,11 @@
 ====== CKW Dynamischer Tarif ======
-/* Plugin-Daten (Wiki-Formular): Autor Christian Stutz | Beschreibung: Nur Schweiz (CKW-Netzgebiet Zentralschweiz): holt alle 15 Minuten die dynamischen Strompreise der CKW (Netz Home/Business dynamic) und sendet sie per MQTT oder UDP an Loxone - passend für den Spotpreis-Optimierer | Logo :plugins:ckwdynamic:logo.png | Status Beta | Version 0.1.6 | Min. LB 3.0 | Release Download https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v0.1.6.zip | Pre-Release Download https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v0.1.7.zip | Sprachen Deutsch | Diskussion https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/issues */
+/* Plugin-Daten (Wiki-Formular): Autor Christian Stutz | Beschreibung: Nur Schweiz (CKW-Netzgebiet Zentralschweiz): holt alle 15 Minuten die dynamischen Strompreise der CKW (Netz Home/Business dynamic) und sendet sie per MQTT oder UDP an Loxone - passend für den Spotpreis-Optimierer | Logo :plugins:ckwdynamic:logo.png | Status Stabil/Release | Version 1.0.0 | Min. LB 3.0 | Release Download https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v1.0.0.zip | Pre-Release Download leer | Sprachen Deutsch | Diskussion https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/issues */
 
 Quellcode: [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic|GitHub]]
 
 ++++ Versionshistorie |
 
-  * **0.1.7** (2026-10, Vorabversion) - Korrekturwerte für den Spotmarkt-Modus „CKW“ des Spotpreis-Optimierers
+  * **1.0.0** (2026-10) - Erstes reguläres Release: Korrekturwerte für den Spotmarkt-Modus „CKW“ des Spotpreis-Optimierers
   * **0.1.6** (2026-10) - Neue Ausgänge ''<c>_ref'' und ''gridusage_ref'' (CKW-Standard-Durchschnittspreis)
   * **0.1.5** (2026-10) - Log bei Stufe „Fehler“ nur noch mit Fehlern, robuster bei CKW-Störungen, Deinstallation entfernt MQTT-Werte
   * **0.1.4** (2026-10) - UDP-Werte mit „=“, Loxone-Vorlage mit Einheit, Absturz mit GitHub-Preistabelle behoben
@@ -42,7 +42,7 @@ Das Plugin ist ein privates Community-Projekt und steht in keiner Verbindung zur
 
 Das Plugin-ZIP gibt es bei den [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/releases|GitHub Releases]]. In der LoxBerry-Pluginverwaltung kann der Link zum ZIP direkt eingefügt werden, z. B. für die aktuelle Version:
 
-''https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v0.1.6.zip''
+''https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v1.0.0.zip''
 
 ===== Installation =====
 
@@ -79,7 +79,7 @@ Automatische Updates können in der Plugin-Verwaltung aktiviert werden.
 | Absolut | ''…_abs00'' bis ''…_abs23'' = heute 00:00 bis 23:00. Für die Betriebsart Absolut. |
 | Morgen | ''…_tmr00'' bis ''…_tmr23'' = morgen 00:00 bis 23:00 (ab ca. 12 Uhr verfügbar). |
 | Fehlende Stunden füllen mit | Gefüllt werden nur Stunden ohne CKW-Preis: jeden Morgen bis ca. 12 Uhr die Stunden von morgen und bei einem Ausfall der CKW-API. Standard (empfohlen): **CKW-Durchschnittspreis** – der von CKW kommunizierte mengengewichtete Durchschnitt der dynamischen Netznutzung (Home dynamic 6.65 Rp./kWh, Business dynamic 5.30 Rp./kWh) plus fixe Netzzuschläge, Stromprodukt und Abgaben. Alternativ: Höchstpreis der bekannten Stunden, letzter bekannter Wert oder 0. |
-| Korrekturwerte Spotpreis-Optimierer | Ab 0.1.7 (Vorabversion): gibt ''formula_factor'' (I2) und ''formula_offset'' (I3) für die Preisberechnung ''I1*I2+I3'' im Spotmarkt-Modus „CKW“ aus, siehe Einbindung in Loxone. |
+| Korrekturwerte Spotpreis-Optimierer | Gibt ''formula_factor'' (I2) und ''formula_offset'' (I3) für die Preisberechnung ''I1*I2+I3'' im Spotmarkt-Modus „CKW“ aus, siehe Einbindung in Loxone. |
 | Günstigstes Zeitfenster | Länge (1-12 h) des Blocks, den das Plugin in den nächsten 24 h sucht: zusammenhängende Stunden mit dem tiefsten Durchschnittspreis (Total), z. B. für Geschirrspüler, Boiler oder Wallbox. Ergebnis in ''cheap_start_off'' (Start in Stunden ab jetzt), ''cheap_start_clock'' (Startzeit als Stunde) und ''cheap_avg''. Es zählen nur echte CKW-Preise, sonst -1. Unabhängig vom Spotpreis-Optimierer. |
 
 ==== MQTT ====
@@ -163,7 +163,7 @@ Für **MQTT** gibt es keine Vorlage: Loxone Config kann normale virtuelle Eingä
   - Das Plugin aktualisiert alle 15 Minuten. Der Optimierer verlangt im Relativ-Modus Werte, die in der laufenden Stunde aktualisiert wurden - das ist damit erfüllt.
   - Stunden ohne Daten (morgen vor ca. 12 Uhr) werden standardmässig mit dem CKW-Durchschnittspreis gefüllt, damit der Optimierer mit realistischen Werten plant. Wie viele Stunden echte Preise haben, zeigt ''hours_avail''. Wer diese Stunden lieber meiden will, wählt „Höchstpreis“.
 
-=== Variante: Spotmarkt-Modus „CKW“ mit Korrekturwerten (ab 0.1.7, Vorabversion) ===
+=== Variante: Spotmarkt-Modus „CKW“ mit Korrekturwerten ===
 
 Loxone bietet im Spotpreis-Optimierer inzwischen CKW als Anbieter im **Spotmarkt-Modus** an (auch mit 15-Minuten-Auflösung). Dort gibt es keine Einstellungen; der gelieferte Preis entspricht vermutlich Netz + ClassicStrom, exkl. MwSt und ohne Konzessionsabgabe. Mit den Korrekturwerten des Plugins wird daraus der eigene Endpreis:
 
@@ -196,7 +196,7 @@ Wer lieber die Betriebsart **Absolut** nutzt, aktiviert in den Einstellungen „
 | ''<c>_minclock'' / ''<c>_maxclock'' | Uhrzeit (Stunde 0-23) des Minimums / Maximums |
 | ''<c>_ref'' | Wert der Komponente beim CKW-Standard-Durchschnittspreis (dynamische Netznutzung im Jahresmittel, übrige Anteile aktuell) – derselbe Wert, mit dem fehlende Stunden gefüllt werden |
 | ''gridusage_ref'' | Von CKW kommunizierter Standard-Durchschnittspreis der dynamischen Netznutzung (Home dynamic 6.65, Business dynamic 5.30 Rp./kWh exkl. MwSt), immer gesendet |
-| ''formula_factor'' / ''formula_offset'' | Parameter I2 / I3 für die Preisberechnung ''I1*I2+I3'' im Spotmarkt-Modus „CKW“ (nur wenn aktiviert, ab 0.1.7) |
+| ''formula_factor'' / ''formula_offset'' | Parameter I2 / I3 für die Preisberechnung ''I1*I2+I3'' im Spotmarkt-Modus „CKW“ (nur wenn aktiviert) |
 | ''formula_i1'' / ''formula_check'' | Erwarteter CKW-Preis I1 bzw. Kontrolle ''I1*I2+I3'' (= ''total_now'') |
 | ''cheap_start_off'' | Start des günstigsten Zeitfensters in Stunden ab jetzt (-1 = nicht genug Daten) |
 | ''cheap_start_clock'' | Start des günstigsten Zeitfensters als Uhrzeit (Stunde) |

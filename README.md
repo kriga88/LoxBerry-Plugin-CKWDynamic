@@ -10,7 +10,7 @@ Holt alle 15 Minuten die dynamischen Strompreise der CKW (**CKW Netz Home dynami
 - Alle Komponenten einzeln: `total`, `integrated`, `grid`, `gridusage`, `gridfix`, `energy`
 - Stundenreihen relativ (+0…+23), absolut (00…23) und morgen; fehlende Stunden (morgen vor ca. 12 Uhr, API-Ausfall) werden standardmässig mit dem CKW-Durchschnittspreis gefüllt
 - Min/Max/Ø, günstigstes Zeitfenster, Rang der aktuellen Stunde, Online-Status
-- Optional: Korrekturwerte (I2/I3) für den Spotmarkt-Modus „CKW“ des Loxone Spotpreis-Optimierers – macht aus dem Loxone-CKW-Preis den eigenen Endpreis (ab 0.1.7, Vorabversion)
+- Optional: Korrekturwerte (I2/I3) für den Spotmarkt-Modus „CKW“ des Loxone Spotpreis-Optimierers – macht aus dem Loxone-CKW-Preis den eigenen Endpreis
 - MQTT: Abo im LoxBerry-MQTT-Gateway wird automatisch angelegt
 - UDP: Loxone-Vorlage zum Herunterladen
 - Neue Jahrespreise und Konzessionsabgaben der Gemeinden werden automatisch aus der maschinenlesbaren Tarifdatei der CKW übernommen (Pflicht für Netzbetreiber seit 2026)
@@ -44,7 +44,7 @@ Release bauen:
 ./build.sh
 ```
 
-Danach `release.cfg` (VERSION, ARCHIVEURL) anpassen, taggen (`v0.1.6`) und GitHub-Release erstellen.
+Danach `release.cfg` (VERSION, ARCHIVEURL) anpassen, taggen (`v1.0.0`) und GitHub-Release erstellen.
 
 ## Lizenz
 
