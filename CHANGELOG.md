@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.1.7 – 2026-10-07 (Vorabversion)
+- Neu (optional): Korrekturwerte für den Loxone Spotpreis-Optimierer im Spotmarkt-Modus „CKW“ – `formula_factor` (I2) und `formula_offset` (I3) für die Preisberechnung `I1*I2+I3`, dazu `formula_i1` und `formula_check` zur Kontrolle. Berücksichtigt Stromprodukt, Konzessionsabgabe (auch prozentual), Zusatzkosten, MwSt und Einheit.
+
 ## 0.1.6 – 2026-10-07 (Beta)
 - Neue Ausgänge: `<komponente>_ref` (z. B. `total_ref`) = Preis beim CKW-Standard-Durchschnittspreis (Füllwert) und `gridusage_ref` = von CKW kommunizierter Durchschnittspreis der dynamischen Netznutzung
 - Preis-Seite zeigt den CKW-Standard-Durchschnittspreis an

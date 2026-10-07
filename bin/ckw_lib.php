@@ -80,6 +80,7 @@ function ckw_defaults()
 		'series_tmr'       => false,
 		'fill_mode'        => 'ckwavg',
 		'cheap_hours'      => 3,
+		'formula_enabled'  => false,
 		'tariffs_remote'   => true,
 		'mqtt_enabled'     => true,
 		'mqtt_topic'       => 'ckwdynamic',
@@ -165,6 +166,8 @@ function ckw_sanitize_config(array $in, &$errors = null)
 		$errors[] = 'Günstigstes Zeitfenster: 1 bis 12 Stunden.';
 		$out['cheap_hours'] = $d['cheap_hours'];
 	}
+
+	$out['formula_enabled'] = ckw_to_bool($c['formula_enabled']);
 
 	$out['tariffs_remote'] = ckw_to_bool($c['tariffs_remote']);
 
@@ -972,6 +975,41 @@ function ckw_reference_fill(array $hours, array $raw, array $cfg, array $tariffs
 	return $slots;
 }
 
+/**
+ * Korrekturwerte fuer die Preisberechnung des Loxone Spotpreis-Optimierers im Spotmarkt-Modus "CKW".
+ * Annahme: Loxone liefert als I1 den CKW-Wert "integrated" (Netz + ClassicStrom, exkl. MwSt, ohne Konzession).
+ * Das Total ist linear in I1, darum genuegen zwei Probe-Viertelstunden durch ckw_compute_slots():
+ *   Total = I1 * factor + offset   (Loxone-Formel: I1*I2+I3, I2 = factor, I3 = offset)
+ * So gelten Stromprodukt, Konzession (auch prozentual), Zusatzkosten, MwSt und Einheit automatisch mit.
+ * Rueckgabe: array('factor', 'offset', 'i1' (erwartetes I1 jetzt oder null)) in der eingestellten Einheit.
+ */
+function ckw_formula_values(array $raw, array $cfg, array $tariffs, $slotTs)
+{
+	$tz = new DateTimeZone(CKW_TZ);
+	$unitf = $cfg['unit'] === 'rp' ? 100 : 1;
+	$cur = isset($raw[$slotTs]) ? $raw[$slotTs] : null;
+	$elec = ($cur && $cur['electricity'] !== null) ? $cur['electricity'] : null;
+	if ($elec === null) {
+		$pp = ckw_product_price($tariffs, 'classic', (new DateTimeImmutable('@' . $slotTs))->setTimezone($tz)->format('Y-m-d'));
+		$elec = $pp ? $pp['rp'] / 100 : 0.0;
+	}
+	// zwei Probe-Netzpreise (beide deutlich ueber Netzzuschlag + Stromreserve, damit alles linear bleibt)
+	$probe = array();
+	foreach (array(0.10, 0.20) as $grid) {
+		$m = array();
+		$slot = ckw_compute_slots(array($slotTs => array('grid_usage' => $grid, 'grid' => $grid, 'electricity' => $elec, 'integrated' => $grid + $elec)), $cfg, $tariffs, $m);
+		$probe[] = array('i1' => ($grid + $elec) * $unitf, 'total' => $slot[$slotTs]['total']);
+	}
+	$factor = ($probe[1]['total'] - $probe[0]['total']) / ($probe[1]['i1'] - $probe[0]['i1']);
+	$offset = $probe[0]['total'] - $factor * $probe[0]['i1'];
+	$i1 = null;
+	if ($cur) {
+		$grid = $cur['grid'] !== null ? $cur['grid'] : $cur['grid_usage'];
+		$i1 = ($cur['integrated'] !== null ? $cur['integrated'] : $grid + $elec) * $unitf;
+	}
+	return array('factor' => $factor, 'offset' => $offset, 'i1' => $i1);
+}
+
 /** Unix-Stundenbeginn der Uhrzeit-Stunde $hour an einem Kalendertag (null bei fehlender Stunde, Zeitumstellung) */
 function ckw_day_hour_ts(DateTimeImmutable $day, $hour)
 {
@@ -1054,6 +1092,7 @@ function ckw_calculate(array $raw, array $cfg, array $tariffs, DateTimeImmutable
 	}
 
 	$res['data_valid'] = isset($slots[$slotTs]);
+	$res['formula'] = $cfg['formula_enabled'] ? ckw_formula_values($raw, $cfg, $tariffs, $slotTs) : null;
 
 	// Standard-Durchschnittspreis (CKW) fuer die laufende Stunde - wird immer ausgegeben (<c>_ref)
 	$rm = array();
@@ -1170,6 +1209,14 @@ function ckw_build_outputs(array $res, array $cfg, array $status)
 	// Von CKW kommunizierter Durchschnittspreis der dynamischen Netznutzung (immer)
 	$v['gridusage_ref'] = $res['ref'] !== null ? ckw_fmt($res['ref']['gridusage'], $cfg) : '-1';
 
+	if ($res['formula'] !== null) {
+		$f = $res['formula'];
+		$v['formula_factor'] = number_format($f['factor'], 6, '.', '');
+		$v['formula_offset'] = ckw_fmt($f['offset'], $cfg);
+		$v['formula_i1']     = $f['i1'] !== null ? ckw_fmt($f['i1'], $cfg) : '-1';
+		$v['formula_check']  = $f['i1'] !== null ? ckw_fmt($f['i1'] * $f['factor'] + $f['offset'], $cfg) : '-1';
+	}
+
 	$v['cheap_start_off']   = $res['cheap'] ? (string)$res['cheap']['start_off'] : '-1';
 	$v['cheap_start_clock'] = $res['cheap'] ? (string)$res['cheap']['start_clock'] : '-1';
 	$v['cheap_avg']         = $res['cheap'] ? ckw_fmt($res['cheap']['avg'], $cfg) : '-1';
@@ -1219,6 +1266,10 @@ function ckw_key_description($key, $unit = 'CHF/kWh')
 		'last_update_text'  => 'Letzter erfolgreicher Abruf als Text',
 		'price_source'      => 'Quelle des Energiepreises',
 		'price_warning'     => 'Hinweis, z. B. fehlender Jahrespreis (leer = alles ok)',
+		'formula_factor'    => 'Spotpreis-Optimierer (Spotmarkt CKW): Parameter I2 für die Preisberechnung I1*I2+I3',
+		'formula_offset'    => "Spotpreis-Optimierer (Spotmarkt CKW): Parameter I3 für die Preisberechnung I1*I2+I3 ($unit)",
+		'formula_i1'        => "Erwarteter CKW-Preis I1 im Optimierer (Netz + ClassicStrom, exkl. MwSt, ohne Konzession) - zum Vergleich mit Cv ($unit)",
+		'formula_check'     => "Kontrolle: I1*I2+I3 für die aktuelle Viertelstunde - muss total_now entsprechen ($unit)",
 	);
 	if (isset($fixed[$key])) {
 		return $fixed[$key];
@@ -1390,7 +1441,7 @@ function ckw_udp_send(array $values, array $cfg, &$error)
 function ckw_key_is_price($key)
 {
 	global $CKW_COMPONENTS;
-	if ($key === 'cheap_avg') {
+	if (in_array($key, array('cheap_avg', 'formula_offset', 'formula_i1', 'formula_check'), true)) {
 		return true;
 	}
 	// nur echte Komponenten (sonst wuerde z. B. rank_now als Preis gelten)
@@ -1411,7 +1462,7 @@ function ckw_udp_template_xml(array $keys, $port, $unit = 'CHF/kWh')
 		$x .= "\t" . '<VirtualInUdpCmd Title="' . $e('CKW ' . $k) . '" Comment="' . $e(ckw_key_description($k, $unit)) . '" Address=""'
 			. ' Check="' . $e($k . '=\v') . '" Signed="true" Analog="' . (in_array($k, $digital, true) ? 'false' : 'true') . '"'
 			. ' SourceValLow="0" DestValLow="0" SourceValHigh="100" DestValHigh="100" DefVal="0" MinVal="-2147483647" MaxVal="2147483647"'
-			. ' Unit="' . $e(ckw_key_is_price($k) ? '<v.3>' : '<v>') . '"/>' . "\r\n";
+			. ' Unit="' . $e($k === 'formula_factor' ? '<v.4>' : (ckw_key_is_price($k) ? '<v.3>' : '<v>')) . '"/>' . "\r\n";
 	}
 	return $x . '</VirtualInUdp>' . "\r\n";
 }

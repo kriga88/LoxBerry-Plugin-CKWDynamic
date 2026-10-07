@@ -15,6 +15,7 @@
   "series_tmr": false,
   "fill_mode": "ckwavg",
   "cheap_hours": 3,
+  "formula_enabled": false,
   "tariffs_remote": true,
   "mqtt_enabled": true,
   "mqtt_topic": "ckwdynamic",

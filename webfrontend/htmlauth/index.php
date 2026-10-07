@@ -42,7 +42,7 @@ $errors = array();
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 	if ($_POST['action'] === 'save') {
 		$in = $_POST;
-		foreach (array('vat_enabled', 'series_rel', 'series_abs', 'series_tmr', 'mqtt_enabled', 'udp_enabled', 'tariffs_remote') as $cb) {
+		foreach (array('vat_enabled', 'series_rel', 'series_abs', 'series_tmr', 'mqtt_enabled', 'udp_enabled', 'tariffs_remote', 'formula_enabled') as $cb) {
 			$in[$cb] = isset($_POST[$cb]) ? '1' : '0';
 		}
 		$in['components'] = isset($_POST['components']) && is_array($_POST['components']) ? $_POST['components'] : array();
@@ -267,6 +267,10 @@ if ($state && isset($state['run'])) {
 	</div>
 	<p class="ckw-hint">Sucht in den nächsten 24 Stunden den zusammenhängenden Block dieser Länge mit dem tiefsten Durchschnittspreis (Total) – z. B. für Boiler, Geschirrspüler oder Wallbox. Ergebnis: <code>cheap_start_off</code> (Start in Stunden ab jetzt), <code>cheap_start_clock</code> (Startzeit als Stunde 0–23) und <code>cheap_avg</code> (Ø-Preis). Es zählen nur echte CKW-Preise; ist kein Block möglich, wird -1 gesendet. Unabhängig vom Spotpreis-Optimierer.</p>
 
+	<h3 class="ckw-section">Loxone Spotpreis-Optimierer im Spotmarkt-Modus „CKW“ (Vorabversion)</h3>
+	<label><input type="checkbox" name="formula_enabled" value="1" <?= $ckwcfg['formula_enabled'] ? 'checked' : '' ?>> Korrekturwerte für die Preisberechnung ausgeben (<code>formula_factor</code>, <code>formula_offset</code>)</label>
+	<p class="ckw-hint">Für den Fall, dass im Spotpreis-Optimierer der Spotmarkt-Modus mit Anbieter CKW (15 Minuten) verwendet wird: Loxone liefert dort einen festen CKW-Preis (vermutlich Netz + ClassicStrom, exkl. MwSt, ohne Konzession). Mit der Preisberechnung <code>I1*I2+I3</code> und diesen Werten wird daraus dein Endpreis mit Stromprodukt, Konzessionsabgabe, Zusatzkosten und MwSt. Details im Reiter <b>Loxone</b>.</p>
+
 	<h3 class="ckw-section">MQTT</h3>
 	<label><input type="checkbox" name="mqtt_enabled" value="1" <?= $ckwcfg['mqtt_enabled'] ? 'checked' : '' ?>> Werte per MQTT an den LoxBerry-Broker senden</label>
 	<div class="ui-field-contain">
@@ -356,6 +360,27 @@ if ($state && isset($state['run'])) {
 		<li>Stunden ohne Daten (morgen vor ca. 12 Uhr) werden <?= h($fillText[$ckwcfg['fill_mode']]) ?> (Einstellung „Fehlende Stunden füllen mit“). Wie viele Stunden echt sind, zeigt <code>hours_avail</code>.</li>
 		<li>Betriebsart <b>Absolut</b>: Eingänge 00:00 … 23:00 mit <code>total_abs00 … total_abs23</code> verbinden (Option „Absolut“ in den Einstellungen aktivieren).</li>
 	</ol>
+
+	<?php if ($ckwcfg['formula_enabled']): $fv = $state && isset($state['values']['formula_factor']) ? $state['values'] : null; ?>
+	<h3 class="ckw-section">Spotmarkt-Modus „CKW“ mit Korrekturwerten (Vorabversion)</h3>
+	<ol>
+		<li>Im Spotpreis-Optimierer den Spotmarkt-Modus mit Anbieter <b>CKW</b> verwenden (15-Minuten-Auflösung möglich).</li>
+		<li>In den Eigenschaften die <b>Preisberechnung</b> auf <code>I1*I2+I3</code> setzen.</li>
+		<li>Parameter <b>I2</b> mit <code>formula_factor</code> und <b>I3</b> mit <code>formula_offset</code> verbinden – oder die Werte einmal von Hand eintragen. Sie ändern sich nur beim Jahreswechsel oder wenn du hier Produkt, Gemeinde, MwSt, Einheit oder Zusatzkosten änderst.</li>
+		<li>Kontrolle: Der Ausgang <b>Cv</b> des Optimierers (ohne Formel) sollte <code>formula_i1</code> entsprechen, mit Formel <code>total_now</code>. Weicht Cv ab, liefert Loxone einen anderen CKW-Preis als angenommen – bitte melden.</li>
+		<li>Einheit beachten: Die Werte hier sind in <?= h($ckwcfg['unit'] === 'rp' ? 'Rp./kWh' : 'CHF/kWh') ?>. Rechnet Loxone in der anderen Einheit, hier die Einheit umstellen.</li>
+	</ol>
+	<?php if ($fv): ?>
+		<table class="ckw-table" style="max-width:600px">
+			<tr><td>I2 = <code>formula_factor</code></td><td class="num"><?= h($fv['formula_factor']) ?></td></tr>
+			<tr><td>I3 = <code>formula_offset</code></td><td class="num"><?= h($fv['formula_offset']) ?></td></tr>
+			<tr><td>erwartetes I1 jetzt (<code>formula_i1</code>)</td><td class="num"><?= h($fv['formula_i1']) ?></td></tr>
+			<tr><td>I1*I2+I3 (<code>formula_check</code>) / <code>total_now</code></td><td class="num"><?= h($fv['formula_check']) ?> / <?= h($fv['total_now']) ?></td></tr>
+		</table>
+	<?php else: ?>
+		<p class="ckw-hint">Werte erscheinen nach dem nächsten Abruf.</p>
+	<?php endif; ?>
+	<?php endif; ?>
 
 	<h3 class="ckw-section">Online-Überwachung</h3>
 	<p><code>online</code> = 1, wenn der letzte Abruf bei CKW geklappt hat und ein Preis für die aktuelle Viertelstunde vorliegt.
