@@ -5,7 +5,7 @@ Quellcode: [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic|GitHub]]
 
 ++++ Versionshistorie |
 
-  * **1.1.0-beta.1** (2026-10, Beta) - Vergleich mit dem Fixtarif: ''fixed_total'', ''fixed_diff'', ''cheaper_than_fixed'', ''cheaper_hours''
+  * **1.1.0-beta.2** (2026-10, Beta) - Vergleich mit dem Fixtarif (ohne Wert für das laufende Jahr: -1): ''fixed_total'', ''fixed_diff'', ''cheaper_than_fixed'', ''cheaper_hours''
   * **1.0.0** (2026-10) - Erstes reguläres Release: Korrekturwerte für den Spotmarkt-Modus „CKW“ des Spotpreis-Optimierers
   * **0.1.6** (2026-10) - Neue Ausgänge ''<c>_ref'' und ''gridusage_ref'' (CKW-Standard-Durchschnittspreis)
   * **0.1.5** (2026-10) - Log bei Stufe „Fehler“ nur noch mit Fehlern, robuster bei CKW-Störungen, Deinstallation entfernt MQTT-Werte
@@ -116,6 +116,7 @@ Das Plugin rechnet zusätzlich den Preis, den du mit dem **fixen (nicht dynamisc
 
   * Home dynamic wird mit **CKW Netz E** verglichen (2026: 9.03 Rp./kWh, 2027: 8.85 Rp./kWh exkl. MwSt, ohne Konzession), Business dynamic mit **CKW Netz LG7** (ab 2027: 7.25 Rp./kWh; für 2026 liegt kein Wert vor → ''-1'').
   * Neue Jahreswerte übernimmt das Plugin automatisch aus der CKW-Tarifdatei.
+  * Ist für das laufende Jahr kein fixer Netztarif bekannt (z. B. falls CKW den Fixtarif nicht mehr anbietet), gehen ''fixed_total'', ''fixed_diff'', ''cheaper_than_fixed'' und ''cheaper_hours'' auf ''-1'' – ein Vorjahreswert wird bewusst nicht verwendet. Der Loxone-Eingang geht dadurch auf Fehler; zusätzlich Hinweis in ''price_warning'', Log und Weboberfläche.
   * Nicht berücksichtigt sind Leistungstarif (fix 1.50 statt dynamisch 1.00 CHF/kW/Monat) und Messentgelt, da sie nicht pro kWh anfallen.
 
 ===== Jährlich wechselnde Preise =====

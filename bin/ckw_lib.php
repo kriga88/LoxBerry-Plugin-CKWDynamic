@@ -1134,22 +1134,25 @@ function ckw_calculate(array $raw, array $cfg, array $tariffs, DateTimeImmutable
 	$res['formula'] = $cfg['formula_enabled'] ? ckw_formula_values($raw, $cfg, $tariffs, $slotTs) : null;
 
 	// Vergleich mit dem fixen CKW-Netztarif
+	// Nur ein Wert fuer das laufende Jahr zaehlt - sonst -1, damit der Loxone-Eingang auf Fehler geht
+	// (z. B. wenn CKW den Fixtarif nicht mehr publiziert)
 	$fixed = ckw_fixed_price($raw, $cfg, $tariffs, $slotTs);
+	if ($fixed !== null && $fixed['outdated']) {
+		$fixed = null;
+	}
 	$res['fixed'] = null;
 	if ($fixed === null) {
-		$res['meta']['warnings']['nofixed'] = 'Für diesen Tarif ist für ' . substr(ckw_local_time($slotTs, 'Y-m-d'), 0, 4) . ' kein fixer Netztarif hinterlegt - Vergleich mit dem Fixtarif nicht möglich (fixed_* = -1).';
+		$res['meta']['warnings']['nofixed'] = 'Für diesen Tarif ist für ' . substr(ckw_local_time($slotTs, 'Y-m-d'), 0, 4) . ' kein fixer Netztarif bekannt - Vergleich mit dem Fixtarif nicht möglich (fixed_* = -1).';
 	}
 	if ($fixed !== null) {
 		$ft = $fixed['values']['total'];
 		$res['fixed'] = array(
 			'total'        => $ft,
 			'diff'         => $res['now']['total'] !== null ? $res['now']['total'] - $ft : null,
-			'cheaper_now'  => ($res['now']['total'] !== null && $res['now']['total'] < $ft) ? 1 : 0,
-			'cheaper_hours'=> count(array_filter($relTotal, function ($x) use ($ft) { return $x !== null && $x < $ft; })),
+			// ohne aktuellen bzw. ohne echte dynamische Preise ebenfalls -1 (kein scheinbar gueltiger Wert)
+			'cheaper_now'  => $res['now']['total'] === null ? -1 : ($res['now']['total'] < $ft ? 1 : 0),
+			'cheaper_hours'=> $res['hours_avail'] === 0 ? -1 : count(array_filter($relTotal, function ($x) use ($ft) { return $x !== null && $x < $ft; })),
 		);
-		if ($fixed['outdated']) {
-			$res['meta']['warnings']['fixedoutdated'] = 'Für ' . substr(ckw_local_time($slotTs, 'Y-m-d'), 0, 4) . ' ist noch kein fixer Netztarif hinterlegt - Vergleich mit Wert gültig ab ' . $fixed['valid_from'] . '.';
-		}
 	}
 
 	// Standard-Durchschnittspreis (CKW) fuer die laufende Stunde - wird immer ausgegeben (<c>_ref)
