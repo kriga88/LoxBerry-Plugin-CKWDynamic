@@ -323,9 +323,15 @@ if ($state && isset($state['run'])) {
 	$maxv = $known ? max($known) : 1;
 	$cheap = $state['cheap'];
 	?>
+	<?php $fx = !empty($state['fixed']) ? $state['fixed'] : null; ?>
+	<?php if ($fx): ?>
+		<p><b>Vergleich mit dem Fixtarif</b> (fixer CKW-Netztarif, gleiches Stromprodukt, Abgaben und MwSt): <?= h($fmt($fx['total'])) ?> <?= h($unit) ?>
+		<?php if ($fx['diff'] !== null): ?> &middot; aktuell <b><?= h($fmt(abs($fx['diff']))) ?> <?= $fx['diff'] < 0 ? 'günstiger' : 'teurer' ?></b><?php endif; ?>
+		&middot; <?= h($fx['cheaper_hours']) ?> der nächsten 24 Stunden günstiger <span class="ckw-hint">(Leistungstarif und Messentgelt nicht berücksichtigt)</span></p>
+	<?php endif; ?>
 	<p class="ckw-hint">Stunden mit Daten: <?= h($state['hours_avail']) ?>/24<?php if (!empty($state['ref'])): ?> &middot; CKW-Standard-Durchschnittspreis: <?= h($fmt($state['ref']['total'])) ?> (Netznutzung <?= h($fmt($state['ref']['gridusage'])) ?>)<?php endif; ?><?php if ($cheap): ?> &middot; günstigstes <?= h($ckwcfg['cheap_hours']) ?>-h-Fenster ab <?= h(sprintf('%02d:00', $cheap['start_clock'])) ?> Uhr (Ø <?= h($fmt($cheap['avg'])) ?>)<?php endif; ?></p>
 	<table class="ckw-table">
-		<tr><th>+h</th><th>Uhrzeit</th><th style="text-align:right"><?= h($unit) ?></th><th style="width:50%"></th></tr>
+		<tr><th>+h</th><th>Uhrzeit</th><th style="text-align:right"><?= h($unit) ?></th><th style="width:45%"></th><th></th></tr>
 		<?php foreach ($rel as $i => $v):
 			$isCheap = $cheap && $i >= $cheap['start_off'] && $i < $cheap['start_off'] + $ckwcfg['cheap_hours'];
 			$fillv = isset($state['fill']['total']['rel'][$i]) ? $state['fill']['total']['rel'][$i] : null;
@@ -336,6 +342,7 @@ if ($state && isset($state['run'])) {
 				<td><?= sprintf('%02d:00', $state['hourclock'][$i]) ?></td>
 				<td class="num"><?= h($v === null ? ($fillv !== null ? 'Ø CKW ' . $fmt($fillv) : 'keine Daten') : $fmt($v)) ?></td>
 				<td><div class="ckw-bar<?= $v === null ? ' filled' : ($isCheap ? ' cheap' : '') ?>" style="width:<?= $w ?>%"></div></td>
+				<td class="ckw-hint"><?= ($fx && $v !== null) ? ($v < $fx['total'] ? 'unter Fixtarif' : '') : '' ?></td>
 			</tr>
 		<?php endforeach; ?>
 	</table>

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.0-beta.1 – 2026-10-17 (Beta)
+- Neu: Vergleich mit dem fixen (nicht dynamischen) CKW-Netztarif – `fixed_total` (Preis mit Netz E bzw. Netz LG7 bei gleichem Stromprodukt, Abgaben und MwSt), `fixed_diff` (aktuell minus Fixtarif), `cheaper_than_fixed` (0/1), `cheaper_hours` (Stunden der nächsten 24 h unter dem Fixtarif)
+- Fixe Netztarife automatisch aus der CKW-Tarifdatei (Einträge mit eingerechneter Konzession werden ignoriert), Rückfall: tariffs.json
+- Preis-Seite zeigt den Vergleich und markiert Stunden unter dem Fixtarif
+
 ## 1.0.0 – 2026-10-07
 Erstes reguläres Release (kein Beta mehr).
 - Neu (optional): Korrekturwerte für den Loxone Spotpreis-Optimierer im Spotmarkt-Modus „CKW“ – `formula_factor` (I2) und `formula_offset` (I3) für die Preisberechnung `I1*I2+I3`, dazu `formula_i1` und `formula_check` zur Kontrolle. Berücksichtigt Stromprodukt, Konzessionsabgabe (auch prozentual), Zusatzkosten, MwSt und Einheit.

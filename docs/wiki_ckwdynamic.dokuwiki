@@ -5,6 +5,7 @@ Quellcode: [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic|GitHub]]
 
 ++++ Versionshistorie |
 
+  * **1.1.0-beta.1** (2026-10, Beta) - Vergleich mit dem Fixtarif: ''fixed_total'', ''fixed_diff'', ''cheaper_than_fixed'', ''cheaper_hours''
   * **1.0.0** (2026-10) - Erstes reguläres Release: Korrekturwerte für den Spotmarkt-Modus „CKW“ des Spotpreis-Optimierers
   * **0.1.6** (2026-10) - Neue Ausgänge ''<c>_ref'' und ''gridusage_ref'' (CKW-Standard-Durchschnittspreis)
   * **0.1.5** (2026-10) - Log bei Stufe „Fehler“ nur noch mit Fehlern, robuster bei CKW-Störungen, Deinstallation entfernt MQTT-Werte
@@ -109,6 +110,14 @@ Automatische Updates können in der Plugin-Verwaltung aktiviert werden.
 
 Nicht enthalten sind Leistungstarif (CHF/kW/Monat), Messentgelt und Grundgebühren, da diese nicht pro kWh anfallen.
 
+===== Vergleich mit dem Fixtarif (ab 1.1.0, Beta) =====
+
+Das Plugin rechnet zusätzlich den Preis, den du mit dem **fixen (nicht dynamischen) CKW-Netztarif** bezahlen würdest – bei gleichem Stromprodukt, gleicher Konzessionsabgabe, gleichen Zusatzkosten und gleicher MwSt-Einstellung. Damit siehst du in Loxone, ob du gerade günstiger oder teurer bist als mit dem Fixtarif.
+
+  * Home dynamic wird mit **CKW Netz E** verglichen (2026: 9.03 Rp./kWh, 2027: 8.85 Rp./kWh exkl. MwSt, ohne Konzession), Business dynamic mit **CKW Netz LG7** (ab 2027: 7.25 Rp./kWh; für 2026 liegt kein Wert vor → ''-1'').
+  * Neue Jahreswerte übernimmt das Plugin automatisch aus der CKW-Tarifdatei.
+  * Nicht berücksichtigt sind Leistungstarif (fix 1.50 statt dynamisch 1.00 CHF/kW/Monat) und Messentgelt, da sie nicht pro kWh anfallen.
+
 ===== Jährlich wechselnde Preise =====
 
 Die CKW passt Netz- und Energiepreise jeweils auf den 1. Januar an. Das Plugin ist so gebaut, dass dafür in der Regel **kein Plugin-Update** nötig ist:
@@ -198,6 +207,9 @@ Wer lieber die Betriebsart **Absolut** nutzt, aktiviert in den Einstellungen „
 | ''gridusage_ref'' | Von CKW kommunizierter Standard-Durchschnittspreis der dynamischen Netznutzung (Home dynamic 6.65, Business dynamic 5.30 Rp./kWh exkl. MwSt), immer gesendet |
 | ''formula_factor'' / ''formula_offset'' | Parameter I2 / I3 für die Preisberechnung ''I1*I2+I3'' im Spotmarkt-Modus „CKW“ (nur wenn aktiviert) |
 | ''formula_i1'' / ''formula_check'' | Erwarteter CKW-Preis I1 bzw. Kontrolle ''I1*I2+I3'' (= ''total_now'') |
+| ''fixed_total'' | Preis mit dem fixen CKW-Netztarif (Netz E bzw. Netz LG7) bei gleichem Stromprodukt, Abgaben und MwSt – Referenz (ab 1.1.0, Beta) |
+| ''fixed_diff'' | Aktueller Preis minus Fixtarif-Preis: negativ = dynamisch günstiger |
+| ''cheaper_than_fixed'' / ''cheaper_hours'' | 1 = aktuelle Viertelstunde günstiger als der Fixtarif / Anzahl der nächsten 24 Stunden unter dem Fixtarif |
 | ''cheap_start_off'' | Start des günstigsten Zeitfensters in Stunden ab jetzt (-1 = nicht genug Daten) |
 | ''cheap_start_clock'' | Start des günstigsten Zeitfensters als Uhrzeit (Stunde) |
 | ''cheap_avg'' | Durchschnittspreis im günstigsten Zeitfenster |

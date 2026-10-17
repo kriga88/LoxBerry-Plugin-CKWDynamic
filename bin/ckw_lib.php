@@ -349,7 +349,7 @@ function ckw_date_from_name($url)
  */
 function ckw_parse_ckw_tariff_file(array $j)
 {
-	$out = array('products' => array(), 'municipalities' => array());
+	$out = array('products' => array(), 'municipalities' => array(), 'static_grid' => array());
 	if (!isset($j['tariffs']) || !is_array($j['tariffs'])) {
 		return $out;
 	}
@@ -379,6 +379,21 @@ function ckw_parse_ckw_tariff_file(array $j)
 				continue;   // unplausibel
 			}
 			$out['products'][$key][] = array('valid_from' => $from, 'rp_kwh' => $rp);
+		}
+
+		// Fixe (nicht dynamische) Netztarife als Vergleichspreis: Netz E (Home) bzw. Netz LG7 (Business).
+		// Eintraege mit Konzession im Preis (Datei 2026: "Inkl. Konession 10%") werden ignoriert,
+		// weil die Konzessionsabgabe separat pro Gemeinde gerechnet wird.
+		$staticMap = array('ckw netz e' => 'home_dynamic', 'ckw netz lg7' => 'business_dynamic');
+		$comment = isset($t['comment']) ? (string)$t['comment'] : '';
+		if ($type === 'grid' && isset($staticMap[strtolower(trim($name))]) && !preg_match('/konz|konession/i', $comment)) {
+			$energy = isset($t['prices']['energy']) && is_array($t['prices']['energy']) ? $t['prices']['energy'] : array();
+			if (count($energy) === 1 && isset($energy[0]['price']) && is_numeric($energy[0]['price'])) {
+				$rp = round($energy[0]['price'] * 100, 4);
+				if ($rp >= 2 && $rp <= 50) {
+					$out['static_grid'][$staticMap[strtolower(trim($name))]][] = array('valid_from' => $from, 'rp_kwh' => $rp);
+				}
+			}
 		}
 
 		if ($type === 'regional_fees' && isset($t['prices']['municipalityTaxes']) && is_array($t['prices']['municipalityTaxes'])) {
@@ -456,7 +471,7 @@ function ckw_load_ckw_tariffs($allowNetwork, $log = null)
 				$urls[] = strpos($u, 'http') === 0 ? $u : 'https://www.ckw.ch' . $u;
 			}
 		}
-		$merged = array('products' => array(), 'municipalities' => array());
+		$merged = array('products' => array(), 'municipalities' => array(), 'static_grid' => array());
 		$updated = '';
 		foreach (array_slice($urls, 0, 6) as $u) {
 			$body = ckw_http_get($u, 20, $err, 'application/json,*/*;q=0.8');
@@ -496,7 +511,7 @@ function ckw_entry_valid($e)
 /** Fuehrt zwei Tabellen zusammen; Eintraege von $b ersetzen solche von $a mit gleichem Gueltig-ab-Datum. */
 function ckw_merge_tariffs(array $a, array $b)
 {
-	foreach (array('products', 'municipalities', 'dynamic_reference') as $sec) {
+	foreach (array('products', 'municipalities', 'dynamic_reference', 'static_grid') as $sec) {
 		if (empty($b[$sec])) {
 			continue;
 		}
@@ -542,7 +557,7 @@ function ckw_merge_tariffs(array $a, array $b)
 function ckw_load_tariffs($remote, $log = null, $allowNetwork = true)
 {
 	$bundled = ckw_read_json(__DIR__ . '/tariffs.json');
-	$empty = array('products' => array(), 'municipalities' => array(), 'dynamic_reference' => array());
+	$empty = array('products' => array(), 'municipalities' => array(), 'dynamic_reference' => array(), 'static_grid' => array());
 	$data = ckw_tariffs_valid($bundled) ? ckw_merge_tariffs($empty, $bundled) : $empty;
 	$sources = array('mitgeliefert ' . (isset($bundled['updated']) ? $bundled['updated'] : ''));
 	$updated = isset($bundled['updated']) ? $bundled['updated'] : '';
@@ -582,7 +597,7 @@ function ckw_load_tariffs($remote, $log = null, $allowNetwork = true)
 			$ckwOk = true;
 		}
 	}
-	foreach (array('municipalities', 'dynamic_reference') as $sec) {
+	foreach (array('municipalities', 'dynamic_reference', 'static_grid') as $sec) {
 		if (!isset($data[$sec])) {
 			$data[$sec] = array();
 		}
@@ -1010,6 +1025,30 @@ function ckw_formula_values(array $raw, array $cfg, array $tariffs, $slotTs)
 	return array('factor' => $factor, 'offset' => $offset, 'i1' => $i1);
 }
 
+/**
+ * Vergleichspreis mit dem fixen (nicht dynamischen) CKW-Netztarif bei sonst gleichen Einstellungen.
+ * Ein kuenstlicher Slot mit dem fixen Netzpreis laeuft durch ckw_compute_slots(), damit Stromprodukt,
+ * Konzession (prozentual: vom fixen Netznutzungsentgelt), Zusatzkosten, MwSt und Einheit gleich behandelt werden.
+ * Rueckgabe: Komponenten des Fixtarifs (Einheit wie eingestellt) oder null, wenn kein fixer Netzpreis bekannt ist.
+ */
+function ckw_fixed_price(array $raw, array $cfg, array $tariffs, $slotTs)
+{
+	$ymd = (new DateTimeImmutable('@' . $slotTs))->setTimezone(new DateTimeZone(CKW_TZ))->format('Y-m-d');
+	$grid = isset($tariffs['static_grid'][$cfg['tariff']]) ? ckw_entry_for_date($tariffs['static_grid'][$cfg['tariff']], $ymd) : null;
+	if ($grid === null) {
+		return null;
+	}
+	$elec = (isset($raw[$slotTs]) && $raw[$slotTs]['electricity'] !== null) ? $raw[$slotTs]['electricity'] : null;
+	if ($elec === null) {
+		$pp = ckw_product_price($tariffs, 'classic', $ymd);
+		$elec = $pp ? $pp['rp'] / 100 : null;
+	}
+	$g = $grid['rp'] / 100;
+	$m = array();
+	$slot = ckw_compute_slots(array($slotTs => array('grid_usage' => $g, 'grid' => $g, 'electricity' => $elec, 'integrated' => null)), $cfg, $tariffs, $m);
+	return array('values' => $slot[$slotTs], 'outdated' => $grid['outdated'], 'valid_from' => $grid['valid_from']);
+}
+
 /** Unix-Stundenbeginn der Uhrzeit-Stunde $hour an einem Kalendertag (null bei fehlender Stunde, Zeitumstellung) */
 function ckw_day_hour_ts(DateTimeImmutable $day, $hour)
 {
@@ -1093,6 +1132,25 @@ function ckw_calculate(array $raw, array $cfg, array $tariffs, DateTimeImmutable
 
 	$res['data_valid'] = isset($slots[$slotTs]);
 	$res['formula'] = $cfg['formula_enabled'] ? ckw_formula_values($raw, $cfg, $tariffs, $slotTs) : null;
+
+	// Vergleich mit dem fixen CKW-Netztarif
+	$fixed = ckw_fixed_price($raw, $cfg, $tariffs, $slotTs);
+	$res['fixed'] = null;
+	if ($fixed === null) {
+		$res['meta']['warnings']['nofixed'] = 'Für diesen Tarif ist für ' . substr(ckw_local_time($slotTs, 'Y-m-d'), 0, 4) . ' kein fixer Netztarif hinterlegt - Vergleich mit dem Fixtarif nicht möglich (fixed_* = -1).';
+	}
+	if ($fixed !== null) {
+		$ft = $fixed['values']['total'];
+		$res['fixed'] = array(
+			'total'        => $ft,
+			'diff'         => $res['now']['total'] !== null ? $res['now']['total'] - $ft : null,
+			'cheaper_now'  => ($res['now']['total'] !== null && $res['now']['total'] < $ft) ? 1 : 0,
+			'cheaper_hours'=> count(array_filter($relTotal, function ($x) use ($ft) { return $x !== null && $x < $ft; })),
+		);
+		if ($fixed['outdated']) {
+			$res['meta']['warnings']['fixedoutdated'] = 'Für ' . substr(ckw_local_time($slotTs, 'Y-m-d'), 0, 4) . ' ist noch kein fixer Netztarif hinterlegt - Vergleich mit Wert gültig ab ' . $fixed['valid_from'] . '.';
+		}
+	}
 
 	// Standard-Durchschnittspreis (CKW) fuer die laufende Stunde - wird immer ausgegeben (<c>_ref)
 	$rm = array();
@@ -1217,6 +1275,11 @@ function ckw_build_outputs(array $res, array $cfg, array $status)
 		$v['formula_check']  = $f['i1'] !== null ? ckw_fmt($f['i1'] * $f['factor'] + $f['offset'], $cfg) : '-1';
 	}
 
+	$v['fixed_total']        = $res['fixed'] ? ckw_fmt($res['fixed']['total'], $cfg) : '-1';
+	$v['fixed_diff']         = ($res['fixed'] && $res['fixed']['diff'] !== null) ? ckw_fmt($res['fixed']['diff'], $cfg) : '-1';
+	$v['cheaper_than_fixed'] = $res['fixed'] ? (string)$res['fixed']['cheaper_now'] : '-1';
+	$v['cheaper_hours']      = $res['fixed'] ? (string)$res['fixed']['cheaper_hours'] : '-1';
+
 	$v['cheap_start_off']   = $res['cheap'] ? (string)$res['cheap']['start_off'] : '-1';
 	$v['cheap_start_clock'] = $res['cheap'] ? (string)$res['cheap']['start_clock'] : '-1';
 	$v['cheap_avg']         = $res['cheap'] ? ckw_fmt($res['cheap']['avg'], $cfg) : '-1';
@@ -1266,6 +1329,10 @@ function ckw_key_description($key, $unit = 'CHF/kWh')
 		'last_update_text'  => 'Letzter erfolgreicher Abruf als Text',
 		'price_source'      => 'Quelle des Energiepreises',
 		'price_warning'     => 'Hinweis, z. B. fehlender Jahrespreis (leer = alles ok)',
+		'fixed_total'       => "Preis mit dem fixen CKW-Netztarif (Netz E bzw. LG7) bei gleichem Stromprodukt, Abgaben und MwSt - Referenz ($unit)",
+		'fixed_diff'        => "Aktueller Preis minus Fixtarif-Preis: negativ = dynamisch günstiger ($unit)",
+		'cheaper_than_fixed'=> '1 = aktuelle Viertelstunde günstiger als der Fixtarif, 0 = teurer',
+		'cheaper_hours'     => 'Anzahl der nächsten 24 Stunden (echte CKW-Preise) unter dem Fixtarif',
 		'formula_factor'    => 'Spotpreis-Optimierer (Spotmarkt CKW): Parameter I2 für die Preisberechnung I1*I2+I3',
 		'formula_offset'    => "Spotpreis-Optimierer (Spotmarkt CKW): Parameter I3 für die Preisberechnung I1*I2+I3 ($unit)",
 		'formula_i1'        => "Erwarteter CKW-Preis I1 im Optimierer (Netz + ClassicStrom, exkl. MwSt, ohne Konzession) - zum Vergleich mit Cv ($unit)",
@@ -1441,7 +1508,7 @@ function ckw_udp_send(array $values, array $cfg, &$error)
 function ckw_key_is_price($key)
 {
 	global $CKW_COMPONENTS;
-	if (in_array($key, array('cheap_avg', 'formula_offset', 'formula_i1', 'formula_check'), true)) {
+	if (in_array($key, array('cheap_avg', 'formula_offset', 'formula_i1', 'formula_check', 'fixed_total', 'fixed_diff'), true)) {
 		return true;
 	}
 	// nur echte Komponenten (sonst wuerde z. B. rank_now als Preis gelten)
@@ -1692,6 +1759,7 @@ function ckw_state_payload(array $res, array $out, array $cfg)
 		'cheap'      => $res['cheap'],
 		'fill'       => $res['fill'],
 		'ref'        => $res['ref'],
+		'fixed'      => $res['fixed'],
 		'fill_mode'  => $cfg['fill_mode'],
 		'hours_avail'=> $res['hours_avail'],
 		'meta'       => $res['meta'],
