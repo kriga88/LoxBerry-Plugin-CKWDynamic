@@ -166,6 +166,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 			$done = $rules[$i]['enabled'] ? 'Regel aktiviert.' : 'Regel deaktiviert.';
 		}
 		$new = ckw_sanitize_config(array_merge($ckwcfg, array('rules' => $rules)), $errors);
+		if (!$errors && $_POST['action'] === 'rule_save') {
+			// feste Preise nur innerhalb des CKW-Preisbands (Total wie eingestellt)
+			$saved = $new['rules'][$i === null ? count($new['rules']) - 1 : $i];
+			$nowSlot = time() - (time() % 900);
+			$ref = ckw_rule_reference($saved, ckw_rules_ui_table($new, time()), $nowSlot, $nowSlot + 900);
+			if ($ref['band'] !== null) {
+				list($bl, $bh) = $ref['band'];
+				$fp = function ($x) use ($new) { return number_format($x, $new['unit'] === 'rp' ? 2 : 4, '.', ''); };
+				$u = $new['unit'] === 'rp' ? 'Rp./kWh' : 'CHF/kWh';
+				$eps = 1e-6;
+				if ($saved['limit_mode'] === 'abs' && ($saved['limit_value'] < $bl - $eps || $saved['limit_value'] > $bh + $eps)) {
+					$errors[] = "Fester Preis: zwischen {$fp($bl)} und {$fp($bh)} $u (CKW-Preisband).";
+				}
+				if ($saved['limit_mode'] === 'fixed' && abs($saved['limit_value']) > $bh - $bl + $eps) {
+					$errors[] = "Fixtarif ±: höchstens ±{$fp($bh - $bl)} $u.";
+				}
+				if ($saved['analog'] === 'linear' && min($saved['lin_p1'], $saved['lin_p2']) < $bl - $eps || $saved['analog'] === 'linear' && max($saved['lin_p1'], $saved['lin_p2']) > $bh + $eps) {
+					$errors[] = "Preis A und B: zwischen {$fp($bl)} und {$fp($bh)} $u.";
+				}
+				if ($saved['analog'] === 'steps' && $saved['steps_mode'] === 'abs') {
+					foreach ($saved['steps'] as $k => $st) {
+						if ($st['from'] < $bl - $eps || $st['to'] > $bh + $eps) {
+							$errors[] = 'Stufe ' . ($k + 1) . ": von/bis zwischen {$fp($bl)} und {$fp($bh)} $u.";
+						}
+					}
+				}
+			}
+		}
 		if (!$errors && $done !== '') {
 			if (ckw_save_config($new)) {
 				$ckwcfg = $new;
@@ -738,6 +766,7 @@ $sub = array('day' => 'Tag', 'month' => 'Monat', 'year' => 'Jahr', 'setup' => 'E
 $punit = $ckwcfg['unit'] === 'rp' ? 'Rp./kWh' : 'CHF/kWh';
 $fmtP = function ($v) use ($ckwcfg) { return $v === null ? '-' : number_format($v, $ckwcfg['unit'] === 'rp' ? 2 : 4, '.', "'"); };
 $ruleState = ($state && isset($state['run']['rules']) && is_array($state['run']['rules'])) ? $state['run']['rules'] : array();
+global $CKW_RULE_STEP_MODES;
 ?>
 <?php if ($ruleView === 'list'): ?>
 	<h3 class="ckw-section">Schaltregeln</h3>
@@ -786,7 +815,7 @@ $ruleState = ($state && isset($state['run']['rules']) && is_array($state['run'][
 	$r = $ruleEdit;
 	$stepsForm = $r['steps'];
 	while (count($stepsForm) < CKW_RULE_STEPS_MAX) {
-		$stepsForm[] = array('mode' => 'none', 'value' => '', 'out' => '');
+		$stepsForm[] = array('from' => '', 'to' => '', 'out' => '');
 	}
 	$sel = function ($name, $value, array $opts) {
 		$x = '<select name="rule[' . $name . ']" id="r_' . $name . '" data-mini="true">';
@@ -827,6 +856,7 @@ $ruleState = ($state && isset($state['run']['rules']) && is_array($state['run'][
 		</div>
 		<div class="rf" data-types="cheapest">
 			<label><input type="checkbox" name="rule[block]" value="1" <?= $r['block'] ? 'checked' : '' ?>> am Stück (ein zusammenhängender Block, z. B. Waschprogramm)</label>
+			<p class="ckw-hint"><b>Aus:</b> die günstigsten Viertelstunden, egal wo sie liegen (z. B. Auto, Boiler). <b>Ein:</b> ein einziger Block mit den tiefsten Gesamtkosten für Geräte, die nicht unterbrochen werden dürfen. Ein begonnener Block läuft immer zu Ende. Mit Obergrenze muss der ganze Block darunter liegen, sonst schaltet die Regel in diesem Fenster nicht ein.</p>
 		</div>
 
 		<div class="rf" data-types="cheapest runtime threshold">
@@ -834,8 +864,14 @@ $ruleState = ($state && isset($state['run']['rules']) && is_array($state['run'][
 				<div class="ui-field-contain"><label for="r_direction">Ein, wenn Preis</label><?= $sel('direction', $r['direction'], array('above' => 'über der Grenze (Sperre)', 'below' => 'unter der Grenze')) ?></div>
 			</div>
 			<div class="ui-field-contain"><label for="r_limit_mode"><span class="rf" data-types="cheapest runtime">Obergrenze</span><span class="rf" data-types="threshold">Grenze</span></label><?= $sel('limit_mode', $r['limit_mode'], $CKW_RULE_LIMIT_MODES) ?></div>
-			<div class="ui-field-contain"><label for="r_limit_value">Wert</label><?= $inp('limit_value', $r['limit_value'], 'number', 'step="any"') ?></div>
-			<p class="ckw-hint">Fester Preis in <?= h($punit) ?> · % zum Mittel: z. B. -20 = 20 % unter dem Durchschnitt des Fensters · Drittel: 1 = Grenze des günstigsten Drittels, 2 = Grenze zum teuersten Drittel · Fixtarif: Abstand zum Fixtarif-Preis in <?= h($punit) ?> (0 = gleich teuer).</p>
+			<div class="ui-field-contain lim-val">
+				<label for="r_limit_value">Wert <span class="lim-unit"></span></label>
+				<input type="range" id="r_limit_range" data-role="none" style="width:100%;max-width:420px">
+				<?= $inp('limit_value', $r['limit_value'], 'number', 'step="any" style="max-width:140px"') ?>
+				<b class="lim-info"></b>
+			</div>
+			<p class="ckw-hint"><b>Fester Preis:</b> wählbar im CKW-Preisband. <b>% Preisband ab Minimum:</b> 0 % = tiefster, 100 % = höchster möglicher Preis laut CKW (Netznutzung 0.1–32 Rp./kWh, umgerechnet auf deinen Preis). <b>Ab Maximum:</b> gleich, von oben gezählt (20 % ab Max = 80 % ab Min). Das Band ist fix und ändert sich nicht mit den Tagespreisen. <b>Anteil der Viertelstunden:</b> z. B. 30 % = Grenze, unter der die günstigsten 30 % der Viertelstunden des Fensters liegen; passt sich jedem Tag an. <b>Fixtarif ±:</b> Abstand zum Fixtarif-Preis (0 = gleich teuer, negativ = günstiger).</p>
+			<p class="ckw-hint ref-info"></p>
 		</div>
 
 		<div class="rf" data-types="runtime">
@@ -851,25 +887,28 @@ $ruleState = ($state && isset($state['run']['rules']) && is_array($state['run'][
 		<h4>Analogwert (optional)</h4>
 		<div class="ui-field-contain"><label for="r_analog">Analogwert</label><?= $sel('analog', $r['analog'], array('none' => 'keiner', 'steps' => 'Stufen nach Preis', 'linear' => 'linear nach Preis')) ?></div>
 		<div class="af" data-analog="steps">
-			<p class="ckw-hint">Stufen von oben nach unten: Die erste Stufe, deren Grenze der Preis nicht überschreitet, gilt. Sonst gilt „übrige Preise“.</p>
-			<table class="ckw-table" style="max-width:640px">
-				<tr><th>Preis bis</th><th>Wert</th><th>Ausgabe</th></tr>
+			<div class="ui-field-contain"><label for="r_steps_mode">Preis von–bis als</label><?= $sel('steps_mode', $r['steps_mode'], $CKW_RULE_STEP_MODES) ?></div>
+			<table class="ckw-table" style="max-width:720px" id="stepTable">
+				<tr><th>von</th><th>bis</th><th>Wert</th><th>entspricht</th></tr>
 				<?php foreach ($stepsForm as $si => $stp): ?>
-					<tr>
-						<td><select name="rule[steps][<?= $si ?>][mode]" data-mini="true"><?php foreach ($CKW_RULE_LIMIT_MODES as $k => $v): ?><option value="<?= h($k) ?>" <?= $stp['mode'] === $k ? 'selected' : '' ?>><?= h($k === 'none' ? '– (leer)' : $v) ?></option><?php endforeach; ?></select></td>
-						<td><input type="number" step="any" name="rule[steps][<?= $si ?>][value]" value="<?= h($stp['value']) ?>" data-mini="true"></td>
-						<td><input type="number" step="any" name="rule[steps][<?= $si ?>][out]" value="<?= h($stp['out']) ?>" data-mini="true"></td>
+					<tr class="step-row">
+						<td><input type="number" step="any" class="st-from" name="rule[steps][<?= $si ?>][from]" value="<?= h($stp['from']) ?>" data-role="none" style="width:90px"></td>
+						<td><input type="number" step="any" class="st-to" name="rule[steps][<?= $si ?>][to]" value="<?= h($stp['to']) ?>" data-role="none" style="width:90px"></td>
+						<td><input type="number" step="any" class="st-out" name="rule[steps][<?= $si ?>][out]" value="<?= h($stp['out']) ?>" data-role="none" style="width:90px"></td>
+						<td class="st-info ckw-hint"></td>
 					</tr>
 				<?php endforeach; ?>
 			</table>
-			<div class="ui-field-contain"><label for="r_else_value">Ausgabe übrige Preise</label><?= $inp('else_value', $r['else_value'], 'number', 'step="any"') ?></div>
+			<p class="ckw-hint">Es gilt die erste Zeile, in deren Bereich der Preis liegt (ein Preis genau auf der Grenze gehört zur oberen Zeile). Leere Zeilen werden ignoriert. Ausserhalb aller Zeilen gilt „Wert übrige Preise“. Beispiel Wärmepumpe mit „Anteil der Viertelstunden“: 0–25 → 100, 25–60 → 70, übrige 40.</p>
+			<p class="ckw-hint step-warn" style="color:#c0392b"></p>
+			<div class="ui-field-contain"><label for="r_else_value">Wert übrige Preise</label><?= $inp('else_value', $r['else_value'], 'number', 'step="any"') ?></div>
 		</div>
 		<div class="af" data-analog="linear">
-			<div class="ui-field-contain"><label for="r_lin_p1">Preis A (<?= h($punit) ?>)</label><?= $inp('lin_p1', $r['lin_p1'], 'number', 'step="any"') ?></div>
+			<div class="ui-field-contain"><label for="r_lin_p1">Preis A (<?= h($punit) ?>)</label><?= $inp('lin_p1', $r['lin_p1'], 'number', 'step="any" class="band-price"') ?></div>
 			<div class="ui-field-contain"><label for="r_lin_v1">ergibt Wert</label><?= $inp('lin_v1', $r['lin_v1'], 'number', 'step="any"') ?></div>
-			<div class="ui-field-contain"><label for="r_lin_p2">Preis B (<?= h($punit) ?>)</label><?= $inp('lin_p2', $r['lin_p2'], 'number', 'step="any"') ?></div>
+			<div class="ui-field-contain"><label for="r_lin_p2">Preis B (<?= h($punit) ?>)</label><?= $inp('lin_p2', $r['lin_p2'], 'number', 'step="any" class="band-price"') ?></div>
 			<div class="ui-field-contain"><label for="r_lin_v2">ergibt Wert</label><?= $inp('lin_v2', $r['lin_v2'], 'number', 'step="any"') ?></div>
-			<p class="ckw-hint">Dazwischen wird gleitend umgerechnet, ausserhalb bleibt der Wert bei A bzw. B.</p>
+			<p class="ckw-hint">Dazwischen wird gleitend umgerechnet, ausserhalb bleibt der Wert bei A bzw. B. Preise A und B im CKW-Preisband <span class="band-text"></span>.</p>
 		</div>
 		<div class="af" data-analog="steps linear">
 			<div class="ui-field-contain"><label for="r_off_value">Wert, wenn die Regel aus ist</label><?= $inp('off_value', $r['off_value'], 'number', 'step="any"') ?></div>
@@ -880,8 +919,9 @@ $ruleState = ($state && isset($state['run']['rules']) && is_array($state['run'][
 		<h4>Weiteres</h4>
 		<div class="ui-field-contain"><label for="r_comp">Preisbasis</label><?= $sel('comp', $r['comp'], $compOpts) ?></div>
 		<div class="ui-field-contain"><label for="r_nodata">Ohne aktuelle CKW-Preise</label><?= $sel('nodata', $r['nodata'], array('plan' => 'nach Plan (CKW-Durchschnittspreis)', 'off' => 'Aus', 'on' => 'Ein')) ?></div>
+		<p class="ckw-hint">Gilt nur, wenn für die <b>laufende</b> Viertelstunde kein echter CKW-Preis vorliegt (längere Störung, auch der letzte Abruf hat keinen Preis für jetzt). <b>Nach Plan:</b> weiter nach dem mit dem CKW-Durchschnittspreis gerechneten Plan. <b>Aus/Ein:</b> Ausgang fest aus bzw. ein (z. B. Auto: Aus, Wärmepumpe: Ein). Fehlende Preise für morgen vor ca. 12 Uhr sind davon nicht betroffen – dafür wird immer mit dem Durchschnittspreis geplant.</p>
 		<div class="ui-field-contain"><label for="r_power_kw">Leistung des Geräts (kW, optional)</label><?= $inp('power_kw', $r['power_kw'], 'number', 'step="any" min="0"') ?></div>
-		<p class="ckw-hint">Mit Leistung schätzt das Plugin die Kosten der geplanten Ein-Zeit (<code>rule_…_cost</code>).</p>
+		<p class="ckw-hint">Nur für die Kostenschätzung, beeinflusst das Schalten nicht: Leistung × ¼ h × Preis jeder geplanten Viertelstunde im aktuellen Fenster, als <code>rule_…_cost</code> (CHF) und in der Vorschau. Beispiel: 11 kW, 4 h zu 20 Rp. = 8.80 CHF. Bei 0 wird kein Kostenwert gesendet.</p>
 
 		<h4>Vorschau</h4>
 		<p id="ruleSummary" class="ckw-hint">Wird berechnet …</p>
@@ -905,6 +945,94 @@ $ruleState = ($state && isset($state['run']['rules']) && is_array($state['run'][
 				e.style.display = e.getAttribute('data-analog').split(' ').indexOf(a) >= 0 ? '' : 'none';
 			});
 		}
+		var ref = null, dec = <?= $ckwcfg['unit'] === 'rp' ? 2 : 4 ?>, unit = <?= json_encode($punit) ?>;
+		var pctModes = ['band_min', 'band_max', 'rank'];
+		function priceFor(mode, v) {
+			if (!ref || v === '' || isNaN(v)) return null;
+			v = parseFloat(v);
+			var b = ref.band;
+			if (mode === 'abs') return v;
+			if (mode === 'band_min') return b ? b[0] + (b[1] - b[0]) * v / 100 : null;
+			if (mode === 'band_max') return b ? b[1] - (b[1] - b[0]) * v / 100 : null;
+			if (mode === 'rank') { var p = ref.prices; if (!p.length) return null; return p[Math.floor((p.length - 1) * Math.max(0, Math.min(100, v)) / 100)]; }
+			if (mode === 'fixed') return ref.fixed === null ? null : ref.fixed + v;
+			return null;
+		}
+		// Umkehrung von priceFor: Wert im neuen Modus, der denselben Preis ergibt
+		function valueFor(mode, price) {
+			var b = ref && ref.band;
+			if (price === null) return null;
+			if (mode === 'abs') return price;
+			if (mode === 'band_min') return b && b[1] > b[0] ? (price - b[0]) / (b[1] - b[0]) * 100 : null;
+			if (mode === 'band_max') return b && b[1] > b[0] ? (b[1] - price) / (b[1] - b[0]) * 100 : null;
+			if (mode === 'rank') { var p = ref.prices, n = 0; if (p.length < 2) return null; p.forEach(function (x) { if (x <= price + 1e-9) n++; }); return Math.max(0, n - 1) / (p.length - 1) * 100; }
+			if (mode === 'fixed') return ref.fixed === null ? null : price - ref.fixed;
+			return null;
+		}
+		var lastLimitMode = null;
+		function bandPct(price) { var b = ref && ref.band; return b && b[1] > b[0] ? (price - b[0]) / (b[1] - b[0]) * 100 : null; }
+		function fmt(x) { return x === null ? '–' : x.toFixed(dec); }
+		function rangeFor(mode) {
+			var b = ref && ref.band;
+			if (pctModes.indexOf(mode) >= 0) return [0, 100, 1, '%'];
+			if (mode === 'abs' && b) return [b[0], b[1], dec === 2 ? 0.01 : 0.0001, unit];
+			if (mode === 'fixed' && b) return [-(b[1] - b[0]), b[1] - b[0], dec === 2 ? 0.01 : 0.0001, unit];
+			return null;
+		}
+		function setupLimit() {
+			var mode = val('limit_mode'), box = document.querySelector('.lim-val');
+			if (ref && lastLimitMode !== null && lastLimitMode !== mode && lastLimitMode !== 'none' && mode !== 'none') {
+				var nv = valueFor(mode, priceFor(lastLimitMode, document.getElementById('r_limit_value').value));
+				if (nv !== null) document.getElementById('r_limit_value').value = +nv.toFixed(pctModes.indexOf(mode) >= 0 ? 0 : (dec === 2 ? 2 : 4));
+			}
+			if (ref) lastLimitMode = mode;
+			box.style.display = mode === 'none' ? 'none' : '';
+			var rg = rangeFor(mode), sl = document.getElementById('r_limit_range'), num = document.getElementById('r_limit_value');
+			document.querySelector('.lim-unit').textContent = rg ? '(' + rg[3] + ')' : '';
+			if (rg) {
+				sl.min = rg[0]; sl.max = rg[1]; sl.step = rg[2]; num.min = rg[0]; num.max = rg[1];
+				var v = parseFloat(num.value);
+				if (isNaN(v) || v < rg[0] || v > rg[1]) { v = Math.max(rg[0], Math.min(rg[1], isNaN(v) ? rg[0] : v)); num.value = +v.toFixed(dec === 2 ? 2 : 4); }
+				sl.value = num.value;
+			}
+			var p = priceFor(mode, num.value), bp = p === null ? null : bandPct(p);
+			document.querySelector('.lim-info').textContent = p === null ? '' : '= ' + fmt(p) + ' ' + unit + (bp !== null && mode !== 'band_min' && mode !== 'band_max' ? ' (' + Math.round(bp) + ' % des Preisbands)' : '');
+		}
+		function setupSteps() {
+			var mode = val('steps_mode'), warn = [], rows = [];
+			Array.prototype.forEach.call(document.querySelectorAll('.step-row'), function (tr, i) {
+				var f = tr.querySelector('.st-from').value, t = tr.querySelector('.st-to').value, o = tr.querySelector('.st-out').value;
+				var info = tr.querySelector('.st-info'), bad = false;
+				if (f === '' && t === '' && o === '') { info.textContent = ''; tr.style.background = ''; return; }
+				var ff = parseFloat(f), tt = parseFloat(t), rg = rangeFor(mode);
+				if (isNaN(ff) || isNaN(tt) || o === '') { bad = true; warn.push('Zeile ' + (i + 1) + ': von, bis und Wert angeben'); }
+				else if (ff >= tt) { bad = true; warn.push('Zeile ' + (i + 1) + ': „von“ muss kleiner als „bis“ sein'); }
+				else if (rg && (ff < rg[0] - 1e-9 || tt > rg[1] + 1e-9)) { bad = true; warn.push('Zeile ' + (i + 1) + ': nur ' + fmtR(rg)); }
+				else rows.push([ff, tt]);
+				tr.style.background = bad ? '#fde8e8' : '';
+				var a = priceFor(mode, f), b = priceFor(mode, t);
+				info.textContent = a !== null && b !== null && mode !== 'abs' ? fmt(a) + ' – ' + fmt(b) + ' ' + unit : (mode === 'abs' && !bad ? Math.round(bandPct(ff)) + '–' + Math.round(bandPct(tt)) + ' % Band' : '');
+			});
+			rows.sort(function (x, y) { return x[0] - y[0]; });
+			for (var i = 1; i < rows.length; i++) {
+				if (rows[i][0] > rows[i - 1][1] + 1e-9) warn.push('Lücke ' + rows[i - 1][1] + '–' + rows[i][0] + ' → „Wert übrige Preise“');
+				if (rows[i][0] < rows[i - 1][1] - 1e-9) warn.push('Überlappung ' + rows[i][0] + '–' + rows[i - 1][1] + ' → die obere Zeile gilt');
+			}
+			document.querySelector('.step-warn').textContent = warn.join(' · ');
+		}
+		function fmtR(rg) { return rg[3] === '%' ? '0–100 %' : 'zwischen ' + fmt(rg[0]) + ' und ' + fmt(rg[1]) + ' ' + rg[3]; }
+		function setupRef() {
+			if (!ref) return;
+			var b = ref.band, p = ref.prices;
+			Array.prototype.forEach.call(document.querySelectorAll('.band-price'), function (e) { if (b) { e.min = b[0]; e.max = b[1]; } });
+			Array.prototype.forEach.call(document.querySelectorAll('.band-text'), function (e) { e.textContent = b ? '(' + fmt(b[0]) + ' – ' + fmt(b[1]) + ' ' + unit + ')' : ''; });
+			var t = b ? 'Preisband CKW: ' + fmt(b[0]) + ' – ' + fmt(b[1]) + ' ' + unit + '.' : 'Für diesen Tarif ist kein Preisband hinterlegt.';
+			if (p.length) t += ' Preise im Zeitfenster: ' + fmt(p[0]) + ' – ' + fmt(p[p.length - 1]) + ' ' + unit + (b ? ' = ' + Math.round(bandPct(p[0])) + ' % bis ' + Math.round(bandPct(p[p.length - 1])) + ' % des Preisbands' : '') + '.';
+			document.querySelector('.ref-info').textContent = t;
+		}
+		function refresh() { setupLimit(); setupSteps(); setupRef(); }
+		document.getElementById('r_limit_range').addEventListener('input', function () { document.getElementById('r_limit_value').value = this.value; setupLimit(); schedule(); });
+
 		var chart = null, timer = null;
 		function preview() {
 			var fd = new FormData(form);
@@ -912,6 +1040,8 @@ $ruleState = ($state && isset($state['run']['rules']) && is_array($state['run'][
 				.then(function (r) { return r.json(); })
 				.then(function (d) {
 					if (d.error) { document.getElementById('ruleSummary').textContent = d.error; return; }
+					ref = d.ref;
+					refresh();
 					var s = d.summary;
 					var txt = (s['in'] ? 'Aktuelles Zeitfenster ' : 'Nächstes Zeitfenster ') + s.window + ': ' + Math.floor(s.on_min / 60) + ':' + ('0' + s.on_min % 60).slice(-2) + ' h Ein geplant';
 					if (s.limit !== null) txt += ', Grenze ' + s.limit.toFixed(<?= $ckwcfg['unit'] === 'rp' ? 2 : 4 ?>) + ' <?= h($punit) ?>';
@@ -942,9 +1072,10 @@ $ruleState = ($state && isset($state['run']['rules']) && is_array($state['run'][
 				.catch(function () { document.getElementById('ruleSummary').textContent = 'Vorschau nicht verfügbar.'; });
 		}
 		function schedule() { clearTimeout(timer); timer = setTimeout(preview, 400); }
-		form.addEventListener('change', function () { toggle(); schedule(); });
-		form.addEventListener('input', schedule);
+		form.addEventListener('change', function () { toggle(); refresh(); schedule(); });
+		form.addEventListener('input', function () { setupLimit(); setupSteps(); schedule(); });
 		toggle();
+		refresh();
 		preview();
 	})();
 	</script>

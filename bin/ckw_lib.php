@@ -1013,11 +1013,7 @@ function ckw_reference_fill(array $hours, array $raw, array $cfg, array $tariffs
 		return array();
 	}
 	$tz = new DateTimeZone(CKW_TZ);
-	$latest = null;
-	if ($raw) {
-		$lastTs = max(array_keys($raw));
-		$latest = array('year' => (new DateTimeImmutable('@' . $lastTs))->setTimezone($tz)->format('Y'), 'slot' => $raw[$lastTs]);
-	}
+	$latest = ckw_latest_slot($raw);
 	$synth = array();
 	foreach ($hours as $h) {
 		$ymd = (new DateTimeImmutable('@' . $h))->setTimezone($tz)->format('Y-m-d');
@@ -1028,25 +1024,43 @@ function ckw_reference_fill(array $hours, array $raw, array $cfg, array $tariffs
 		if ($avg['outdated']) {
 			$meta['warnings']['avgoutdated'] = 'Für ' . substr($ymd, 0, 4) . ' ist noch kein CKW-Durchschnittspreis hinterlegt - verwende Wert gültig ab ' . $avg['valid_from'] . '.';
 		}
-		$sameYear = $latest && $latest['year'] === substr($ymd, 0, 4) && $latest['slot']['grid'] !== null && $latest['slot']['grid_usage'] !== null;
-		if ($sameYear) {
-			$fix = $latest['slot']['grid'] - $latest['slot']['grid_usage'];
-		} else {
-			$gf = ckw_reference($tariffs, 'grid_fix', $ymd);
-			$fix = $gf ? $gf['rp'] / 100 : 0.0;
-		}
-		$elec = ($sameYear && $latest['slot']['electricity'] !== null) ? $latest['slot']['electricity'] : null;
-		if ($elec === null) {
-			$pp = ckw_product_price($tariffs, 'classic', $ymd);
-			$elec = $pp ? $pp['rp'] / 100 : null;
-		}
-		$usage = $avg['rp'] / 100;
-		$synth[$h] = array('grid_usage' => $usage, 'grid' => $usage + $fix, 'electricity' => $elec, 'integrated' => null);
+		$synth[$h] = ckw_synth_slot($tariffs, $latest, $ymd, $avg['rp'] / 100);
 	}
 	$m = array();
 	$slots = ckw_compute_slots($synth, $cfg, $tariffs, $m);
 	$meta['warnings'] += $m['warnings'];
 	return $slots;
+}
+
+/** Letzter Slot des Abrufs mit seinem Jahr (Basis fuer synthetische Slots) */
+function ckw_latest_slot(array $raw)
+{
+	if (!$raw) {
+		return null;
+	}
+	$lastTs = max(array_keys($raw));
+	return array('year' => (new DateTimeImmutable('@' . $lastTs))->setTimezone(new DateTimeZone(CKW_TZ))->format('Y'), 'slot' => $raw[$lastTs]);
+}
+
+/**
+ * Synthetischer API-Slot (CHF/kWh) mit vorgegebener dynamischer Netznutzung. Fixe Netzzuschlaege und ClassicStrom
+ * stammen aus dem letzten Abruf (gleiches Jahr), sonst aus den Referenzwerten der Preistabelle.
+ */
+function ckw_synth_slot(array $tariffs, $latest, $ymd, $usage)
+{
+	$sameYear = $latest && $latest['year'] === substr($ymd, 0, 4) && $latest['slot']['grid'] !== null && $latest['slot']['grid_usage'] !== null;
+	if ($sameYear) {
+		$fix = $latest['slot']['grid'] - $latest['slot']['grid_usage'];
+	} else {
+		$gf = ckw_reference($tariffs, 'grid_fix', $ymd);
+		$fix = $gf ? $gf['rp'] / 100 : 0.0;
+	}
+	$elec = ($sameYear && $latest['slot']['electricity'] !== null) ? $latest['slot']['electricity'] : null;
+	if ($elec === null) {
+		$pp = ckw_product_price($tariffs, 'classic', $ymd);
+		$elec = $pp ? $pp['rp'] / 100 : null;
+	}
+	return array('grid_usage' => $usage, 'grid' => $usage + $fix, 'electricity' => $elec, 'integrated' => null);
 }
 
 /**

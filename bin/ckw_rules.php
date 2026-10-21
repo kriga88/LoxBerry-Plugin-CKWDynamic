@@ -25,12 +25,22 @@ $CKW_RULE_TYPES = array(
 	'window'    => 'Immer im Zeitfenster',
 );
 
+// Grenzarten. Preisband = von CKW genannte Spanne der dynamischen Netznutzung (tariffs.json: <tarif>_min/_max),
+// umgerechnet aufs Total wie eingestellt - bleibt gleich, auch wenn die Tagespreise schwanken.
 $CKW_RULE_LIMIT_MODES = array(
-	'none'    => 'keine',
-	'abs'     => 'fester Preis',
-	'avg_pct' => '% zum Mittel des Fensters',
-	'third'   => 'Drittel des Fensters',
-	'fixed'   => 'Fixtarif +/-',
+	'none'     => 'keine',
+	'abs'      => 'fester Preis',
+	'band_min' => '% Preisband ab Minimum',
+	'band_max' => '% Preisband ab Maximum',
+	'rank'     => 'Anteil der Viertelstunden',
+	'fixed'    => 'Fixtarif +/-',
+);
+
+// Bezug der Analogwert-Stufen (von-bis)
+$CKW_RULE_STEP_MODES = array(
+	'rank'     => 'Anteil der Viertelstunden (%)',
+	'band_min' => '% Preisband ab Minimum',
+	'abs'      => 'fester Preis',
 );
 
 function ckw_rules_state_file()   { return ckw_ram_dir() . '/rules_state.json'; }
@@ -62,6 +72,7 @@ function ckw_rule_defaults()
 		'nodata'        => 'plan',
 		'power_kw'      => 0.0,
 		'analog'        => 'none',
+		'steps_mode'    => 'rank',
 		'steps'         => array(),
 		'else_value'    => 0.0,
 		'off_value'     => 0.0,
@@ -114,7 +125,7 @@ function ckw_sanitize_rule(array $in, array &$errors)
 	$r['win_from'] = ckw_rule_time($c['win_from'], $d['win_from']);
 	$r['win_to'] = ckw_rule_time($c['win_to'], $d['win_to']);
 
-	$num = function ($k, $min, $max, $text) use ($c, $d, &$errors, $label) {
+	$num = function ($k, $min, $max, $text) use (&$c, $d, &$errors, $label) {
 		$v = ckw_to_float($c[$k], null);
 		if ($v === null || $v < $min || $v > $max) {
 			$errors[] = "$label: $text";
@@ -124,8 +135,20 @@ function ckw_sanitize_rule(array $in, array &$errors)
 	};
 	$r['hours'] = $num('hours', 0.25, 24, 'Stunden zwischen 0.25 und 24.');
 	$r['block'] = ckw_to_bool($c['block']);
+	// Migration aus 1.3.0-beta.1 (% zum Mittel, Drittel)
+	if ($c['limit_mode'] === 'third') {
+		$c['limit_mode'] = 'rank';
+		$c['limit_value'] = ckw_to_float($c['limit_value'], 2) <= 1 ? 33 : 67;
+	} elseif ($c['limit_mode'] === 'avg_pct') {
+		$c['limit_mode'] = 'rank';
+		$c['limit_value'] = max(0, min(100, 50 + ckw_to_float($c['limit_value'], 0)));
+	}
 	$r['limit_mode'] = isset($CKW_RULE_LIMIT_MODES[$c['limit_mode']]) ? $c['limit_mode'] : 'none';
-	$r['limit_value'] = $num('limit_value', -1000, 1000, 'Grenzwert ungültig.');
+	if (in_array($r['limit_mode'], array('band_min', 'band_max', 'rank'), true)) {
+		$r['limit_value'] = $num('limit_value', 0, 100, 'Grenze in Prozent: 0 bis 100.');
+	} else {
+		$r['limit_value'] = $num('limit_value', -1000, 1000, 'Grenzwert ungültig.');
+	}
 	$r['priority'] = in_array($c['priority'], array('comfort', 'price'), true) ? $c['priority'] : $d['priority'];
 	$r['max_off_h'] = $num('max_off_h', 0, 24, 'Max. Aus-Zeit zwischen 0 und 24 Stunden.');
 	$r['min_block_min'] = (int)$num('min_block_min', 0, 480, 'Mindest-Laufblock zwischen 0 und 480 Minuten.');
@@ -135,18 +158,56 @@ function ckw_sanitize_rule(array $in, array &$errors)
 	$r['power_kw'] = $num('power_kw', 0, 1000, 'Leistung zwischen 0 und 1000 kW.');
 
 	$r['analog'] = in_array($c['analog'], array('none', 'steps', 'linear'), true) ? $c['analog'] : 'none';
+	$steps = is_array($c['steps']) ? array_values($c['steps']) : array();
+	// Migration aus 1.3.0-beta.1: Stufen "Preis bis" -> von-bis (Bezug Anteil der Viertelstunden)
+	if ($steps && isset($steps[0]['mode']) && !isset($steps[0]['from'])) {
+		$old = $steps;
+		$steps = array();
+		$prev = 0.0;
+		foreach ($old as $st) {
+			if (!isset($st['mode']) || $st['mode'] === 'none' || !isset($st['value'], $st['out']) || $st['value'] === '') {
+				continue;
+			}
+			$to = $st['mode'] === 'third' ? ((float)$st['value'] <= 1 ? 33.0 : 67.0)
+				: ($st['mode'] === 'avg_pct' ? max(0, min(100, 50 + (float)$st['value'])) : (float)$st['value']);
+			$steps[] = array('from' => $prev, 'to' => $to, 'out' => $st['out']);
+			$prev = $to;
+		}
+		$c['steps_mode'] = 'rank';
+	}
+	global $CKW_RULE_STEP_MODES;
+	$r['steps_mode'] = isset($CKW_RULE_STEP_MODES[$c['steps_mode']]) ? $c['steps_mode'] : $d['steps_mode'];
+	$pct = $r['steps_mode'] !== 'abs';
 	$r['steps'] = array();
-	foreach (is_array($c['steps']) ? $c['steps'] : array() as $st) {
-		if (!is_array($st) || !isset($st['mode']) || !isset($CKW_RULE_LIMIT_MODES[$st['mode']]) || $st['mode'] === 'none') {
+	foreach ($steps as $si => $st) {
+		if (!is_array($st)) {
 			continue;
 		}
-		$v = ckw_to_float(isset($st['value']) ? $st['value'] : null, null);
-		$o = ckw_to_float(isset($st['out']) ? $st['out'] : null, null);
-		if ($v === null || $o === null || abs($v) > 1000 || abs($o) > 100000) {
-			$errors[] = "$label: Stufe ungültig.";
+		$raw = array(isset($st['from']) ? $st['from'] : '', isset($st['to']) ? $st['to'] : '', isset($st['out']) ? $st['out'] : '');
+		if (trim(implode('', array_map('strval', $raw))) === '') {
+			continue;   // leere Zeile
+		}
+		$f = ckw_to_float($raw[0], null);
+		$t = ckw_to_float($raw[1], null);
+		$o = ckw_to_float($raw[2], null);
+		$row = $si + 1;
+		if ($f === null || $t === null || $o === null) {
+			$errors[] = "$label: Stufe $row unvollständig (von, bis und Wert angeben).";
 			continue;
 		}
-		$r['steps'][] = array('mode' => $st['mode'], 'value' => $v, 'out' => $o);
+		if ($pct && ($f < 0 || $t > 100)) {
+			$errors[] = "$label: Stufe $row: von/bis zwischen 0 und 100 %.";
+			continue;
+		}
+		if ($f >= $t) {
+			$errors[] = "$label: Stufe $row: „von“ muss kleiner als „bis“ sein.";
+			continue;
+		}
+		if (abs($o) > 100000 || abs($f) > 1000 || abs($t) > 1000) {
+			$errors[] = "$label: Stufe $row ungültig.";
+			continue;
+		}
+		$r['steps'][] = array('from' => $f, 'to' => $t, 'out' => $o);
 		if (count($r['steps']) >= CKW_RULE_STEPS_MAX) {
 			break;
 		}
@@ -194,22 +255,22 @@ function ckw_rule_templates()
 			'name' => 'Auto laden', 'type' => 'cheapest', 'win_from' => '18:00', 'win_to' => '07:00', 'hours' => 4.0))),
 		'waschen' => array('label' => 'Waschmaschine', 'rule' => array_merge($d, array(
 			'name' => 'Waschmaschine', 'type' => 'cheapest', 'win_from' => '08:00', 'win_to' => '22:00', 'hours' => 2.0, 'block' => true,
-			'limit_mode' => 'avg_pct', 'limit_value' => 0.0))),
+			'limit_mode' => 'rank', 'limit_value' => 50.0))),
 		'wp' => array('label' => 'Wärmepumpe', 'rule' => array_merge($d, array(
 			'name' => 'Wärmepumpe', 'type' => 'runtime', 'hours' => 8.0, 'max_off_h' => 3.0, 'min_block_min' => 30,
-			'priority' => 'comfort', 'limit_mode' => 'third', 'limit_value' => 2.0,
-			'analog' => 'steps', 'steps' => array(
-				array('mode' => 'avg_pct', 'value' => -20.0, 'out' => 100.0),
-				array('mode' => 'avg_pct', 'value' => 0.0, 'out' => 70.0),
+			'priority' => 'comfort', 'limit_mode' => 'rank', 'limit_value' => 67.0,
+			'analog' => 'steps', 'steps_mode' => 'rank', 'steps' => array(
+				array('from' => 0.0, 'to' => 25.0, 'out' => 100.0),
+				array('from' => 25.0, 'to' => 60.0, 'out' => 70.0),
 			), 'else_value' => 40.0, 'off_value' => 0.0, 'hold_min' => 60))),
 		'sgready' => array('label' => 'SG-Ready', 'rule' => array_merge($d, array(
-			'name' => 'SG Ready', 'type' => 'window', 'analog' => 'steps', 'steps' => array(
-				array('mode' => 'avg_pct', 'value' => -25.0, 'out' => 4.0),
-				array('mode' => 'third', 'value' => 1.0, 'out' => 3.0),
-				array('mode' => 'third', 'value' => 2.0, 'out' => 2.0),
+			'name' => 'SG Ready', 'type' => 'window', 'analog' => 'steps', 'steps_mode' => 'rank', 'steps' => array(
+				array('from' => 0.0, 'to' => 10.0, 'out' => 4.0),
+				array('from' => 10.0, 'to' => 35.0, 'out' => 3.0),
+				array('from' => 35.0, 'to' => 80.0, 'out' => 2.0),
 			), 'else_value' => 1.0, 'off_value' => 2.0, 'hold_min' => 30))),
 		'sperre' => array('label' => 'Sperrzeit', 'rule' => array_merge($d, array(
-			'name' => 'Sperrzeit', 'type' => 'threshold', 'direction' => 'above', 'limit_mode' => 'third', 'limit_value' => 2.0, 'min_dur_min' => 30))),
+			'name' => 'Sperrzeit', 'type' => 'threshold', 'direction' => 'above', 'limit_mode' => 'rank', 'limit_value' => 80.0, 'min_dur_min' => 30))),
 		'boiler' => array('label' => 'Boiler', 'rule' => array_merge($d, array(
 			'name' => 'Boiler', 'type' => 'cheapest', 'hours' => 3.0))),
 		'leer' => array('label' => 'Leer', 'rule' => array_merge($d, array('name' => 'Neue Regel'))),
@@ -270,6 +331,8 @@ function ckw_rules_price_table(array $raw, array $cfg, array $tariffs, $from, $t
 		$max = array_combine(array_keys(reset($slots)), $max);
 	}
 	$fixedDay = array();
+	$bandDay = array();
+	$latest = ckw_latest_slot($raw);
 	$tz = new DateTimeZone(CKW_TZ);
 	$out = array();
 	for ($t = $from; $t < $to; $t += 900) {
@@ -277,38 +340,64 @@ function ckw_rules_price_table(array $raw, array $cfg, array $tariffs, $from, $t
 		if (!array_key_exists($ymd, $fixedDay)) {
 			$fx = ckw_fixed_price($raw, $cfg, $tariffs, $t);
 			$fixedDay[$ymd] = ($fx !== null && !$fx['outdated']) ? $fx['values']['total'] : null;
+			$bandDay[$ymd] = ckw_rules_band($cfg, $tariffs, $latest, $t);
 		}
+		$base = array('fixed' => $fixedDay[$ymd], 'band' => $bandDay[$ymd]);
 		if (isset($slots[$t])) {
-			$out[$t] = array('p' => $slots[$t], 'real' => true, 'fixed' => $fixedDay[$ymd]);
+			$out[$t] = array('p' => $slots[$t], 'real' => true) + $base;
 		} else {
 			$h = $t - ($t % 3600);
 			$p = ($fill !== null && isset($fill[$h])) ? $fill[$h] : $max;
-			$out[$t] = array('p' => $p, 'real' => false, 'fixed' => $fixedDay[$ymd]);
+			$out[$t] = array('p' => $p, 'real' => false) + $base;
 		}
 	}
 	return $out;
 }
 
-/** Grenze aus Modus/Wert, bezogen auf die Preise des Fensters */
-function ckw_rule_limit($mode, $value, array $winPrices, $fixed)
+/**
+ * Preisband (min, max) als Komponenten in der eingestellten Einheit fuer den Tag von $ts:
+ * dynamische Netznutzung = Band-Min bzw. Band-Max laut CKW, uebrige Anteile wie eingestellt.
+ * null, wenn fuer den Tarif kein Band in der Preistabelle steht.
+ */
+function ckw_rules_band(array $cfg, array $tariffs, $latest, $ts)
 {
-	if ($mode === 'none' || !$winPrices) {
+	$ymd = (new DateTimeImmutable('@' . (int)$ts))->setTimezone(new DateTimeZone(CKW_TZ))->format('Y-m-d');
+	$lo = ckw_reference($tariffs, $cfg['tariff'] . '_min', $ymd);
+	$hi = ckw_reference($tariffs, $cfg['tariff'] . '_max', $ymd);
+	if ($lo === null || $hi === null) {
 		return null;
 	}
-	if ($mode === 'abs') {
-		return (float)$value;
-	}
-	if ($mode === 'avg_pct') {
-		return array_sum($winPrices) / count($winPrices) * (1 + $value / 100);
-	}
-	if ($mode === 'third') {
-		$p = $winPrices;
-		sort($p);
-		$n = count($p);
-		return $value <= 1 ? $p[(int)floor(($n - 1) / 3)] : $p[(int)floor(2 * ($n - 1) / 3)];
-	}
-	if ($mode === 'fixed') {
-		return $fixed === null ? null : $fixed + $value;
+	$m = array();
+	$slots = ckw_compute_slots(array(
+		$ts       => ckw_synth_slot($tariffs, $latest, $ymd, $lo['rp'] / 100),
+		$ts + 900 => ckw_synth_slot($tariffs, $latest, $ymd, $hi['rp'] / 100),
+	), $cfg, $tariffs, $m);
+	return array($slots[$ts], $slots[$ts + 900]);
+}
+
+/**
+ * Grenzpreis aus Modus/Wert.
+ * $winPrices: Preise des Fensters (fuer "Anteil der Viertelstunden"), $band: array(min, max) des Preisbands oder null,
+ * $fixed: Fixtarif-Preis oder null.
+ */
+function ckw_rule_limit($mode, $value, array $winPrices, $fixed, $band = null)
+{
+	switch ($mode) {
+		case 'abs':
+			return (float)$value;
+		case 'band_min':
+			return $band === null ? null : $band[0] + ($band[1] - $band[0]) * $value / 100;
+		case 'band_max':
+			return $band === null ? null : $band[1] - ($band[1] - $band[0]) * $value / 100;
+		case 'rank':
+			if (!$winPrices) {
+				return null;
+			}
+			$p = $winPrices;
+			sort($p);
+			return $p[(int)floor((count($p) - 1) * max(0, min(100, $value)) / 100)];
+		case 'fixed':
+			return $fixed === null ? null : $fixed + $value;
 	}
 	return null;
 }
@@ -486,12 +575,26 @@ function ckw_rule_runtime_dp(array $r, array $p, $lim, array $h)
 	return $on;
 }
 
+/** Preisgrenzen (von, bis) der Analogwert-Stufen */
+function ckw_rule_step_limits(array $r, array $basis, $fixed, $band)
+{
+	$out = array();
+	foreach ($r['steps'] as $i => $s) {
+		$a = ckw_rule_limit($r['steps_mode'], $s['from'], $basis, $fixed, $band);
+		$b = ckw_rule_limit($r['steps_mode'], $s['to'], $basis, $fixed, $band);
+		$out[$i] = array($a, $b);
+	}
+	return $out;
+}
+
 /** Analogwert fuer einen Preis (ohne Hysterese) */
 function ckw_rule_map_value(array $r, $price, array $stepLimits)
 {
 	if ($r['analog'] === 'steps') {
+		// erste Stufe mit von <= Preis <= bis (Grenzpreis gehoert zur oberen Zeile)
 		foreach ($r['steps'] as $i => $st) {
-			if ($stepLimits[$i] !== null && $price <= $stepLimits[$i]) {
+			if ($stepLimits[$i][0] !== null && $stepLimits[$i][1] !== null
+				&& $price >= $stepLimits[$i][0] - 1e-9 && $price <= $stepLimits[$i][1] + 1e-9) {
 				return $st['out'];
 			}
 		}
@@ -542,11 +645,9 @@ function ckw_rule_plan(array $r, array $table, $slotTs, array $st)
 		}
 		$basis = count($real) >= 4 ? $real : $all;
 		$fixed = isset($table[$w[0]]) ? $table[$w[0]]['fixed'] : null;
-		$lim = ckw_rule_limit($r['limit_mode'], $r['limit_value'], $basis, $fixed);
-		$stepLim = array();
-		foreach ($r['steps'] as $i => $s) {
-			$stepLim[$i] = ckw_rule_limit($s['mode'], $s['value'], $basis, $fixed);
-		}
+		$band = (isset($table[$w[0]]) && $table[$w[0]]['band'] !== null) ? array($table[$w[0]]['band'][0][$comp], $table[$w[0]]['band'][1][$comp]) : null;
+		$lim = ckw_rule_limit($r['limit_mode'], $r['limit_value'], $basis, $fixed, $band);
+		$stepLim = ckw_rule_step_limits($r, $basis, $fixed, $band);
 		if ($wi === 0) {
 			$plan['limit'] = $lim;
 		}
@@ -756,6 +857,34 @@ function ckw_rule_preview(array $r, array $table, $nowTs)
 	return ckw_rule_plan($r, $table, $slotTs, $st);
 }
 
+/**
+ * Bezugswerte eines Fensters fuer die Weboberflaeche: Preisband (min, max), sortierte Fensterpreise
+ * (bevorzugt echte), Fixtarif. Preise in der eingestellten Einheit.
+ */
+function ckw_rule_reference(array $r, array $table, $from, $to)
+{
+	$comp = $r['comp'];
+	$all = array();
+	$real = array();
+	for ($t = $from; $t < $to; $t += 900) {
+		if (isset($table[$t]) && $table[$t]['p'] !== null) {
+			$all[] = $table[$t]['p'][$comp];
+			if ($table[$t]['real']) {
+				$real[] = $table[$t]['p'][$comp];
+			}
+		}
+	}
+	$basis = count($real) >= 4 ? $real : $all;
+	sort($basis);
+	$first = isset($table[$from]) ? $table[$from] : ($table ? reset($table) : null);
+	$band = ($first && $first['band'] !== null) ? array($first['band'][0][$comp], $first['band'][1][$comp]) : null;
+	return array(
+		'band'   => $band,
+		'prices' => array_map(function ($x) { return round($x, 5); }, $basis),
+		'fixed'  => $first ? $first['fixed'] : null,
+	);
+}
+
 /** Preistabelle fuer die Weboberflaeche aus dem letzten Abruf (kein Netzzugriff) */
 function ckw_rules_ui_table(array $cfg, $nowTs)
 {
@@ -769,7 +898,8 @@ function ckw_rules_ui_table(array $cfg, $nowTs)
 /** Daten fuer das Vorschau-Diagramm einer Regel (laufendes bzw. naechstes und folgendes Zeitfenster) */
 function ckw_rule_preview_data(array $r, array $cfg, $nowTs)
 {
-	$plan = ckw_rule_preview($r, ckw_rules_ui_table($cfg, $nowTs), $nowTs);
+	$table = ckw_rules_ui_table($cfg, $nowTs);
+	$plan = ckw_rule_preview($r, $table, $nowTs);
 	$d = array('labels' => array(), 'price' => array(), 'on' => array(), 'value' => array(), 'limit' => array(), 'real' => array());
 	$onMin = 0;
 	$cost = 0.0;
@@ -786,6 +916,9 @@ function ckw_rule_preview_data(array $r, array $cfg, $nowTs)
 		}
 	}
 	$w = $plan['windows'] ? $plan['windows'][0] : null;
+	// Bezugswerte fuer die Regler im Editor: Preisband, Preise des Fensters (sortiert), Fixtarif
+	$ref = ckw_rule_reference($r, $table, $w ? $w[0] : $nowTs, $w ? $w[1] : $nowTs + 86400);
+	$d['ref'] = $ref;
 	$d['summary'] = array(
 		'window'   => $w ? ckw_rule_day_label($w[0]) . ckw_local_time($w[0], ' d.m. H:i') . ' – ' . ckw_rule_day_label($w[1]) . ckw_local_time($w[1], ' d.m. H:i') : '',
 		'in'       => $plan['inst'][2],

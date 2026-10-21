@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0-beta.2 – 2026-10-21 (interne Beta, nicht veröffentlicht)
+- Schaltregeln: neue, eindeutige Grenzarten mit Regler und Live-Preis – fester Preis (nur im CKW-Preisband), % Preisband ab Minimum bzw. ab Maximum (Band laut CKW 0.1–32 Rp./kWh Netznutzung, aufs Total umgerechnet), Anteil der Viertelstunden, Fixtarif ±. Entfallen: „% zum Mittel“ und „Drittel“ (bestehende Regeln werden automatisch umgestellt)
+- Analogwert-Stufen als „Preis von–bis → Wert“ mit Prüfung (von < bis, Bereich, Hinweis bei Lücke/Überlappung)
+- Editor: Beim Wechsel der Grenzart bleibt der Preis gleich; Hilfetexte zu „am Stück“, „Ohne aktuelle CKW-Preise“ und Leistung
+- Vorlagen auf „Anteil der Viertelstunden“ umgestellt
+- tariffs.json: Preisband `<tarif>_min`/`_max` in `dynamic_reference`
+
 ## 1.3.0-beta.1 – 2026-10-21 (interne Beta, nicht veröffentlicht)
 - Neu: **Schaltregeln** (Reiter **Regeln**, max. 20): Typen Günstigste Zeiten (optional am Stück), Laufzeit (Mindest-Ein-Zeit, max. Aus-Zeit am Stück, Mindest-Laufblock, Vorrang Komfort/Preis), Preisschwelle (mit Mindestdauer) und Immer im Zeitfenster
 - Zeitfenster pro Regel (auch über Mitternacht), Grenzen absolut, % zum Mittel, Drittel oder relativ zum Fixtarif

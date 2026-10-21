@@ -164,14 +164,15 @@ Der Loxone Spotpreis-Optimierer lässt sich nur wenig einstellen. Im Reiter **Re
 ==== Einstellungen ====
 
   * **Zeitfenster** von–bis: Standard 00:00–00:00 = ganzer Tag. Ist „bis“ früher als „von“, geht das Fenster über Mitternacht (18:00–07:00 = „bis 7 Uhr fertig“). Ausserhalb ist der Ausgang aus.
-  * **Grenzen** (Obergrenze bzw. Schwelle):
-    * fester Preis
-    * % zum Mittel des Fensters (z. B. -20)
-    * Drittel des Fensters (1 = günstigstes Drittel, 2 = Grenze zum teuersten Drittel)
-    * Abstand zum Fixtarif
+  * **Grenzen** (Obergrenze bzw. Schwelle), wählbar per Regler; neben dem Regler steht der resultierende Preis:
+    * **Fester Preis:** nur innerhalb des CKW-Preisbands wählbar.
+    * **% Preisband ab Minimum / ab Maximum:** 0 % = tiefster, 100 % = höchster möglicher Preis. Bezug ist die von CKW genannte Spanne der dynamischen Netznutzung (0.1–32 Rp./kWh), umgerechnet auf deinen Preis inkl. Stromprodukt, Abgaben und MwSt. Das Band ist fix, die Grenze ändert sich also nicht mit den Tagespreisen. Die meisten Tage nutzen nur den unteren Teil des Bands; der Editor zeigt, wo die aktuellen Preise liegen.
+    * **Anteil der Viertelstunden:** z. B. 30 % = Grenze, unter der die günstigsten 30 % der Viertelstunden des Zeitfensters liegen. Passt sich jedem Tag an.
+    * **Fixtarif ±:** Abstand zum Preis mit dem Fixtarif (0 = gleich teuer, negativ = günstiger).
+    * Beim Wechsel der Grenzart rechnet der Editor den Wert so um, dass der Preis gleich bleibt.
   * **Vorrang** (Laufzeit): //Komfort// hält Mindestzeit und max. Aus-Zeit ein, notfalls über der Obergrenze. //Preis// schaltet nie über der Obergrenze ein und verfehlt dafür notfalls die Mindestzeit.
   * **Analogwert:**
-    * //Stufen//: bis zu 5 Preisgrenzen mit je einem Wert, dazu ein Wert für die übrigen Preise
+    * //Stufen//: bis zu 5 Zeilen „Preis von–bis → Wert“, wahlweise als Anteil der Viertelstunden, % Preisband oder fester Preis. Es gilt die erste passende Zeile, ein Preis auf der Grenze gehört zur oberen Zeile. Ausserhalb aller Zeilen gilt der Wert für die übrigen Preise. Lücken und Überlappungen zeigt der Editor an.
     * //linear//: Preis A → Wert X, Preis B → Wert Y, dazwischen gleitend
     * dazu ein Wert für „Regel aus“ und eine Haltezeit gegen Springen
   * **Ohne aktuelle Preise:** nach Plan, Aus oder Ein.
@@ -181,10 +182,10 @@ Der Loxone Spotpreis-Optimierer lässt sich nur wenig einstellen. Im Reiter **Re
 ==== Vorlagen ====
 
   * **Auto laden:** günstigste 4 h zwischen 18 und 7 Uhr
-  * **Waschmaschine:** 2 h am Stück unter dem Mittel, 8–22 Uhr
-  * **Wärmepumpe:** mind. 8 h pro Tag, höchstens 3 h aus, Blöcke ab 30 min, Vorrang Komfort; Leistung 100 % (20 % unter Mittel), 70 % (unter Mittel), sonst 40 %
-  * **SG-Ready:** 4 = Anlaufbefehl (25 % unter Mittel), 3 = Einschaltempfehlung (günstigstes Drittel), 2 = normal, 1 = Sperre (teuerstes Drittel)
-  * **Sperrzeit:** Ein im teuersten Drittel
+  * **Waschmaschine:** 2 h am Stück in der günstigeren Hälfte der Viertelstunden, 8–22 Uhr
+  * **Wärmepumpe:** mind. 8 h pro Tag, höchstens 3 h aus, Blöcke ab 30 min, Vorrang Komfort, Obergrenze Anteil 67 %; Leistung 100 % (günstigste 25 %), 70 % (25–60 %), sonst 40 %
+  * **SG-Ready:** 4 = Anlaufbefehl (günstigste 10 %), 3 = Einschaltempfehlung (10–35 %), 2 = normal (35–80 %), 1 = Sperre (teuerste 20 %)
+  * **Sperrzeit:** Ein in den teuersten 20 % der Viertelstunden
   * **Boiler:** günstigste 3 h
 
 In Loxone den Eingang direkt an das Gerät hängen. Handbetrieb, Frostschutz usw. regelst du weiterhin in Loxone.
