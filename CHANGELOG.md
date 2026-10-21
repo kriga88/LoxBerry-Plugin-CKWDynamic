@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0-beta.2 – 2026-10-21 (interne Beta, nicht veröffentlicht)
+- Statistik: Beim Zähler-Baustein wird der eingestellte Ausgang gelesen (Standard **Mrc**), bisher lieferte der Miniserver den ersten Ausgang (Pf = Leistung). Bei falschem Ausgang zeigt „Zählerstand jetzt lesen“ alle vorhandenen an.
+- Statistik: Knopf „Verbrauchsdaten löschen“ (Neustart nach falscher Einrichtung)
+
 ## 1.2.0-beta.1 – 2026-10-21 (interne Beta, nicht veröffentlicht)
 - Neu: Verbrauchsstatistik mit dynamischen Preisen (eigener Reiter **Statistik**: Tag / Monat / Jahr / Einrichtung)
   - Zählerstand Bezug vom Miniserver (virtueller Eingang/Merker) oder per MQTT (retained), alle 15 Minuten

@@ -93,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 	} elseif ($_POST['action'] === 'stats_save' || $_POST['action'] === 'meter_test') {
 		// Statistik -> Einrichtung: nur die Zaehler-Felder uebernehmen
 		$in = $ckwcfg;
-		foreach (array('meter_source', 'meter_msnr', 'meter_name', 'meter_topic', 'meter_unit', 'meter_max_kwh') as $f) {
+		foreach (array('meter_source', 'meter_msnr', 'meter_name', 'meter_output', 'meter_topic', 'meter_unit', 'meter_max_kwh') as $f) {
 			if (isset($_POST[$f])) {
 				$in[$f] = $_POST[$f];
 			}
@@ -116,6 +116,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 			} else {
 				$errors[] = 'Einstellungen konnten nicht gespeichert werden (Schreibrechte?).';
 			}
+		}
+	} elseif ($_POST['action'] === 'stats_reset') {
+		try {
+			ckw_stats_reset();
+			$messages[] = 'Statistik zurückgesetzt. Die Erfassung beginnt ab der nächsten Viertelstunde neu.';
+		} catch (Exception $e) {
+			$errors[] = 'Statistik konnte nicht zurückgesetzt werden: ' . $e->getMessage();
 		}
 	} elseif ($_POST['action'] === 'fetch') {
 		$output = array();
@@ -464,9 +471,13 @@ $sub = array('day' => 'Tag', 'month' => 'Monat', 'year' => 'Jahr', 'setup' => 'E
 		<?= LBWeb::mslist_select_html(array('FORMID' => 'meter_msnr', 'LABEL' => 'Miniserver', 'SELECTED' => $ckwcfg['meter_msnr'], 'DATA_MINI' => 0)) ?>
 		<div class="ui-field-contain">
 			<label for="meter_name">Name des Werts</label>
-			<input type="text" name="meter_name" id="meter_name" value="<?= h($ckwcfg['meter_name']) ?>" placeholder="z. B. CKW_Zaehler">
+			<input type="text" name="meter_name" id="meter_name" value="<?= h($ckwcfg['meter_name']) ?>" placeholder="z. B. Netzzähler">
 		</div>
-		<p class="ckw-hint">Am einfachsten: In Loxone Config einen <b>virtuellen Eingang</b> oder <b>Merker</b> mit eindeutigem Namen (z. B. <code>CKW_Zaehler</code>) an den Ausgang <b>Mrc</b> (Zählerstand Bezug) des Energiezählers bzw. Netzzähler-Bausteins hängen. Der LoxBerry-Benutzer des Miniservers braucht Leserechte darauf. Der Wert darf eine Einheit enthalten («12345.6kWh»).</p>
+		<div class="ui-field-contain">
+			<label for="meter_output">Ausgang des Bausteins</label>
+			<input type="text" name="meter_output" id="meter_output" value="<?= h($ckwcfg['meter_output']) ?>" placeholder="Mrc">
+		</div>
+		<p class="ckw-hint">Name des Zähler-Bausteins wie in Loxone Config, dazu der Ausgang mit dem Zählerstand Bezug (beim Zähler-Baustein <b>Mrc</b>, nicht Pf = aktuelle Leistung). Alternativ einen <b>virtuellen Eingang</b> oder <b>Merker</b> mit eindeutigem Namen an Mrc hängen – dann spielt der Ausgang keine Rolle. Der LoxBerry-Benutzer des Miniservers braucht Leserechte. Der Wert darf eine Einheit enthalten («12345.6kWh»). „Zählerstand jetzt lesen“ zeigt bei einem falschen Ausgang alle vorhandenen an.</p>
 
 		<h4>MQTT</h4>
 		<div class="ui-field-contain">
@@ -492,6 +503,12 @@ $sub = array('day' => 'Tag', 'month' => 'Monat', 'year' => 'Jahr', 'setup' => 'E
 		<button type="submit" data-inline="true" data-icon="search" onclick="document.getElementById('stats_action').value='meter_test'">Zählerstand jetzt lesen</button>
 		<button type="submit" data-inline="true" data-icon="check" onclick="document.getElementById('stats_action').value='stats_save'">Speichern</button>
 	</form>
+	<h4>Statistik zurücksetzen</h4>
+	<form method="post" action="index.php?page=stats&amp;view=setup" data-ajax="false" onsubmit="return confirm('Alle erfassten Verbrauchsdaten löschen?');">
+		<input type="hidden" name="action" value="stats_reset">
+		<button type="submit" data-inline="true" data-mini="true" data-icon="delete">Verbrauchsdaten löschen</button>
+	</form>
+	<p class="ckw-hint">Löscht alle erfassten Zählerstände und Verbrauchswerte, z. B. nach einer falschen Einrichtung. Die gespeicherten Preise bleiben erhalten.</p>
 	<p class="ckw-hint">Speicher: Die Viertelstundenwerte sammeln sich in der RAM-Disk und werden einmal pro Stunde in <code>data/statistics.sqlite</code> geschrieben (ca. 3 MB pro Jahr, schont die SD-Karte). Massgebend für die Abrechnung bleibt die Rechnung der CKW.</p>
 
 <?php else: ?>

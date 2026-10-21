@@ -107,6 +107,7 @@ function ckw_defaults()
 		'meter_source'     => 'off',
 		'meter_msnr'       => 1,
 		'meter_name'       => '',
+		'meter_output'     => 'Mrc',
 		'meter_topic'      => '',
 		'meter_unit'       => 'kwh',
 		'meter_max_kwh'    => 50,
@@ -220,6 +221,11 @@ function ckw_sanitize_config(array $in, &$errors = null)
 	if (!preg_match('#^[^/\\\\\x00-\x1f]{0,60}$#u', $out['meter_name'])) {
 		$errors[] = 'Name am Miniserver: max. 60 Zeichen, ohne / und \\.';
 		$out['meter_name'] = $d['meter_name'];
+	}
+	$out['meter_output'] = trim((string)$c['meter_output']);
+	if (!preg_match('/^[A-Za-z0-9_]{0,20}$/', $out['meter_output'])) {
+		$errors[] = 'Ausgang des Bausteins: nur Buchstaben und Ziffern (z. B. Mrc).';
+		$out['meter_output'] = $d['meter_output'];
 	}
 	$out['meter_topic'] = trim((string)$c['meter_topic']);
 	if ($out['meter_topic'] !== '' && !preg_match('#^[^\#+\x00-\x1f]{1,150}$#u', $out['meter_topic'])) {

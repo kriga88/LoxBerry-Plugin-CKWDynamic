@@ -127,7 +127,7 @@ Weder Kundenportal noch App der CKW zeigen, **wann** du zu **welchem** dynamisch
 
 Reiter **Statistik → Einrichtung**, Quelle wählen:
 
-  * **Miniserver abfragen:** In Loxone Config einen virtuellen Eingang oder Merker mit eindeutigem Namen (z. B. ''CKW_Zaehler'') an den Ausgang **Mrc** (Zählerstand Bezug) des Energiezählers bzw. Netzzähler-Bausteins hängen. Im Plugin Miniserver und diesen Namen eintragen. Der LoxBerry-Benutzer des Miniservers braucht Leserechte. Eine Einheit im Wert („12345.6kWh“) stört nicht.
+  * **Miniserver abfragen:** Im Plugin den Namen des Zähler-Bausteins (wie in Loxone Config) und den Ausgang **Mrc** (Zählerstand Bezug, Standard) eintragen. Alternativ einen virtuellen Eingang oder Merker mit eindeutigem Namen (z. B. ''CKW_Zaehler'') an Mrc hängen und diesen Namen eintragen. Der LoxBerry-Benutzer des Miniservers braucht Leserechte. Eine Einheit im Wert („12345.6kWh“) stört nicht.
   * **MQTT-Topic:** Der Zählerstand muss **retained** auf dem LoxBerry-Broker liegen, z. B. von Loxone über das MQTT-Gateway (Präfix ''retain'') oder direkt von einem Smartmeter-Adapter.
   * Einheit kWh oder Wh, Plausibilitätsgrenze pro Viertelstunde (Standard 50 kWh).
   * Mit **Zählerstand jetzt lesen** lässt sich die Verbindung vor dem Speichern prüfen.

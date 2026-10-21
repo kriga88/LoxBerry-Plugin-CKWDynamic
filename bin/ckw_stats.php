@@ -60,6 +60,49 @@ function ckw_stats_parse_number($v)
 }
 
 /**
+ * Alle Ausgaenge aus der Antwort von /dev/sps/io/<name>/all: Name => Wert (leer bei Eingang/Merker)
+ * Beispiel: <output name="Pf" nr="1" value="2.3"/> <output name="Mrc" nr="2" value="12345.6"/>
+ */
+function ckw_stats_parse_outputs($xml)
+{
+	$out = array();
+	if (preg_match_all('/<output\b[^>]*>/i', (string)$xml, $tags)) {
+		foreach ($tags[0] as $tag) {
+			if (preg_match('/\bname="([^"]*)"/i', $tag, $n) && preg_match('/\bvalue="([^"]*)"/i', $tag, $v)) {
+				$out[$n[1]] = html_entity_decode($v[1], ENT_QUOTES, 'UTF-8');
+			}
+		}
+	}
+	return $out;
+}
+
+/**
+ * Wert vom Miniserver: Bei einem Baustein mit mehreren Ausgaengen (z. B. Zaehler: Pf, Mrc, ...)
+ * wird der eingestellte Ausgang gelesen, bei virtuellem Eingang/Merker der Wert selbst.
+ */
+function ckw_stats_read_miniserver(array $cfg, &$error)
+{
+	$name = $cfg['meter_name'];
+	list($value, $code, $xml) = @mshttp_call($cfg['meter_msnr'], '/dev/sps/io/' . rawurlencode($name) . '/all');
+	if ((string)$code !== '200' || $xml === null) {
+		$error = "Miniserver {$cfg['meter_msnr']} liefert keinen Wert für \"$name\" (Name prüfen, Benutzerrechte des LoxBerry-Benutzers am Baustein?).";
+		return null;
+	}
+	$outputs = ckw_stats_parse_outputs($xml);
+	if (!$outputs) {
+		return $value;   // virtueller Eingang / Merker: nur ein Wert
+	}
+	$want = $cfg['meter_output'];
+	foreach ($outputs as $n => $v) {
+		if ($want !== '' && strcasecmp($n, $want) === 0) {
+			return $v;
+		}
+	}
+	$error = "Baustein \"$name\" hat keinen Ausgang \"$want\". Vorhanden: " . implode(', ', array_keys($outputs)) . '.';
+	return null;
+}
+
+/**
  * Liest den Zaehlerstand Bezug in kWh (Miniserver oder MQTT). Rueckgabe float oder null + $error.
  */
 function ckw_stats_read_meter(array $cfg, &$error)
@@ -71,9 +114,8 @@ function ckw_stats_read_meter(array $cfg, &$error)
 			$error = 'Kein Name für den Zählerstand am Miniserver eingetragen.';
 			return null;
 		}
-		$raw = @mshttp_get($cfg['meter_msnr'], $cfg['meter_name']);
-		if ($raw === null || $raw === false || $raw === '') {
-			$error = "Miniserver {$cfg['meter_msnr']} liefert keinen Wert für \"{$cfg['meter_name']}\" (Name prüfen, Benutzerrechte des LoxBerry-Benutzers am Baustein?).";
+		$raw = ckw_stats_read_miniserver($cfg, $error);
+		if ($raw === null) {
 			return null;
 		}
 	} elseif ($cfg['meter_source'] === 'mqtt') {
@@ -274,6 +316,20 @@ function ckw_stats_slot_prices(array $raw, array $cfg, array $tariffs)
 		$out[$ts] = array(round($v['total'], 6), ($fx !== null && !$fx['outdated']) ? round($fx['values']['total'], 6) : null);
 	}
 	return $out;
+}
+
+/** Loescht alle erfassten Verbrauchs- und Zaehlerdaten (Preise bleiben fuer die Tageskurven erhalten) */
+function ckw_stats_reset()
+{
+	$db = ckw_stats_db();
+	$db->exec('DELETE FROM usage');
+	$db->exec('DELETE FROM readings');
+	$b = ckw_stats_buffer_load();
+	$b['usage'] = array();
+	$b['readings'] = array();
+	$b['last_ts'] = null;
+	$b['last_meter'] = null;
+	ckw_stats_buffer_save($b);
 }
 
 /** Puffer sofort vollstaendig schreiben (vor Plugin-Update / Deinstallation) */

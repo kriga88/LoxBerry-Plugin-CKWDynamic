@@ -26,6 +26,7 @@
   "meter_source": "off",
   "meter_msnr": 1,
   "meter_name": "",
+  "meter_output": "Mrc",
   "meter_topic": "",
   "meter_unit": "kwh",
   "meter_max_kwh": 50
