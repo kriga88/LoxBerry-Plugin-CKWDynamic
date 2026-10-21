@@ -61,10 +61,38 @@ if (isset($_GET['csv']) && in_array($statView, array('day', 'month', 'year'), tr
 	exit;
 }
 
+// Vorschau einer Schaltregel (JSON, aus dem Regel-Editor)
+if (isset($_GET['rules_preview'])) {
+	header('Content-Type: application/json; charset=utf-8');
+	$rerr = array();
+	$rin = isset($_POST['rule']) && is_array($_POST['rule']) ? $_POST['rule'] : array();
+	$rin['block'] = isset($rin['block']) ? '1' : '0';
+	$rule = ckw_sanitize_rule($rin, $rerr);
+	try {
+		echo json_encode(ckw_rule_preview_data($rule, $ckwcfg, time()));
+	} catch (Throwable $e) {
+		echo json_encode(array('error' => 'Vorschau nicht möglich: ' . $e->getMessage()));
+	}
+	exit;
+}
+
 // ---------------------------------------------------------------------------
 // Formularaktionen
 // ---------------------------------------------------------------------------
 $page = isset($_GET['page']) ? $_GET['page'] : 'settings';
+$ruleView = isset($_GET['view']) && $_GET['view'] === 'edit' ? 'edit' : 'list';
+$ruleIdx = isset($_GET['idx']) && ctype_digit((string)$_GET['idx']) && isset($ckwcfg['rules'][(int)$_GET['idx']]) ? (int)$_GET['idx'] : null;
+$ruleEdit = null;
+if ($ruleView === 'edit') {
+	$tpls = ckw_rule_templates();
+	if ($ruleIdx !== null) {
+		$ruleEdit = $ckwcfg['rules'][$ruleIdx];
+	} else {
+		$tk = isset($_GET['tpl']) && isset($tpls[$_GET['tpl']]) ? $_GET['tpl'] : 'leer';
+		$tmpErr = array();
+		$ruleEdit = ckw_sanitize_rule($tpls[$tk]['rule'], $tmpErr);
+	}
+}
 $messages = array();
 $errors = array();
 
@@ -117,6 +145,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 				$errors[] = 'Einstellungen konnten nicht gespeichert werden (Schreibrechte?).';
 			}
 		}
+	} elseif (in_array($_POST['action'], array('rule_save', 'rule_delete', 'rule_toggle'), true)) {
+		$rules = $ckwcfg['rules'];
+		$i = isset($_POST['idx']) && ctype_digit((string)$_POST['idx']) && isset($rules[(int)$_POST['idx']]) ? (int)$_POST['idx'] : null;
+		$done = '';
+		if ($_POST['action'] === 'rule_save') {
+			$rin = isset($_POST['rule']) && is_array($_POST['rule']) ? $_POST['rule'] : array();
+			$rin['block'] = isset($rin['block']) ? '1' : '0';
+			if ($i === null) {
+				$rules[] = $rin;
+			} else {
+				$rules[$i] = $rin;
+			}
+			$done = 'Regel gespeichert.';
+		} elseif ($i !== null && $_POST['action'] === 'rule_delete') {
+			array_splice($rules, $i, 1);
+			$done = 'Regel gelöscht.';
+		} elseif ($i !== null) {
+			$rules[$i]['enabled'] = !$rules[$i]['enabled'];
+			$done = $rules[$i]['enabled'] ? 'Regel aktiviert.' : 'Regel deaktiviert.';
+		}
+		$new = ckw_sanitize_config(array_merge($ckwcfg, array('rules' => $rules)), $errors);
+		if (!$errors && $done !== '') {
+			if (ckw_save_config($new)) {
+				$ckwcfg = $new;
+				exec("$fetchCmd > /dev/null 2>&1 &");
+				$messages[] = $done . ' Die Ausgänge werden im Hintergrund neu berechnet und gesendet.';
+			} else {
+				$errors[] = 'Einstellungen konnten nicht gespeichert werden (Schreibrechte?).';
+			}
+		} elseif ($errors && $_POST['action'] === 'rule_save') {
+			// Formular mit den Eingaben erneut zeigen
+			$ruleView = 'edit';
+			$ruleIdx = $i;
+			$tmpErr = array();
+			$ruleEdit = ckw_sanitize_rule($rin, $tmpErr);
+		}
 	} elseif ($_POST['action'] === 'stats_reset') {
 		try {
 			ckw_stats_reset();
@@ -151,12 +215,14 @@ $navbar[2]['Name'] = 'Preise';
 $navbar[2]['URL'] = 'index.php?page=prices';
 $navbar[3]['Name'] = 'Statistik';
 $navbar[3]['URL'] = 'index.php?page=stats';
-$navbar[4]['Name'] = 'Loxone';
-$navbar[4]['URL'] = 'index.php?page=loxone';
-$navbar[5]['Name'] = 'Log';
-$navbar[5]['URL'] = LBWeb::loglist_url(array('NAME' => 'Abruf'));
-$navbar[5]['target'] = '_blank';
-$active = array('settings' => 1, 'prices' => 2, 'stats' => 3, 'loxone' => 4);
+$navbar[4]['Name'] = 'Regeln';
+$navbar[4]['URL'] = 'index.php?page=rules';
+$navbar[5]['Name'] = 'Loxone';
+$navbar[5]['URL'] = 'index.php?page=loxone';
+$navbar[6]['Name'] = 'Log';
+$navbar[6]['URL'] = LBWeb::loglist_url(array('NAME' => 'Abruf'));
+$navbar[6]['target'] = '_blank';
+$active = array('settings' => 1, 'prices' => 2, 'stats' => 3, 'rules' => 4, 'loxone' => 5);
 $navbar[isset($active[$page]) ? $active[$page] : 1]['active'] = true;
 
 LBWeb::lbheader($template_title, $helplink, 'help.html');
@@ -662,6 +728,226 @@ $sub = array('day' => 'Tag', 'month' => 'Monat', 'year' => 'Jahr', 'setup' => 'E
 	<?php endif; ?>
 	<p><a data-role="button" data-inline="true" data-mini="true" data-icon="arrow-d" data-ajax="false" href="index.php?page=stats&amp;view=<?= $statView ?>&amp;<?= $navParam ?>=<?= h($statRef->format($statView === 'day' ? 'Y-m-d' : ($statView === 'month' ? 'Y-m' : 'Y'))) ?>&amp;csv=1">CSV-Export (Viertelstunden)</a></p>
 	<?php endif; ?>
+<?php endif; ?>
+
+<?php elseif ($page === 'rules'): ?>
+<!-- =================================================================== -->
+<!-- SCHALTREGELN                                                         -->
+<!-- =================================================================== -->
+<?php
+$punit = $ckwcfg['unit'] === 'rp' ? 'Rp./kWh' : 'CHF/kWh';
+$fmtP = function ($v) use ($ckwcfg) { return $v === null ? '-' : number_format($v, $ckwcfg['unit'] === 'rp' ? 2 : 4, '.', "'"); };
+$ruleState = ($state && isset($state['run']['rules']) && is_array($state['run']['rules'])) ? $state['run']['rules'] : array();
+?>
+<?php if ($ruleView === 'list'): ?>
+	<h3 class="ckw-section">Schaltregeln</h3>
+	<p class="ckw-hint">Jede Regel schaltet einen Ausgang <code>rule_&lt;kurzname&gt;_on</code> (0/1) und auf Wunsch einen Analogwert <code>rule_&lt;kurzname&gt;_value</code>, z. B. Leistung in % oder SG-Ready 1–4. Das Plugin plant bei jedem Lauf (alle 15 Minuten) neu mit den aktuellen Preisen. Fehlende Stunden (morgen vor ca. 12 Uhr) rechnet es mit dem CKW-Durchschnittspreis.</p>
+	<?php if (!$ckwcfg['rules']): ?>
+		<div class="ckw-msg ckw-warn">Noch keine Regeln angelegt. Starte mit einer Vorlage:</div>
+	<?php else: ?>
+		<table class="ckw-table">
+			<tr><th>Regel</th><th>Typ</th><th>Zeitfenster</th><th>Jetzt</th><th>Nächstes Ein</th><th style="text-align:right">Rest geplant</th><th></th></tr>
+			<?php foreach ($ckwcfg['rules'] as $i => $r): $rs = isset($ruleState[$r['key']]) ? $ruleState[$r['key']] : null; ?>
+				<tr<?= $r['enabled'] ? '' : ' style="opacity:0.5"' ?>>
+					<td><b><?= h($r['name']) ?></b><br><code>rule_<?= h($r['key']) ?>_on</code></td>
+					<td><?= h($CKW_RULE_TYPES[$r['type']]) ?><?= $r['analog'] !== 'none' ? ' + Analogwert' : '' ?></td>
+					<td><?= $r['win_from'] === $r['win_to'] ? 'ganzer Tag' : h($r['win_from'] . '–' . $r['win_to']) ?></td>
+					<td><?php if (!$r['enabled']): ?>inaktiv<?php elseif ($rs): ?><span class="ckw-status" style="background:<?= $rs['on'] ? '#3cb043' : '#bbb' ?>"></span><?= $rs['on'] ? 'Ein' : 'Aus' ?><?= $rs['value'] !== null ? ' · ' . h(rtrim(rtrim(number_format($rs['value'], 2, '.', ''), '0'), '.')) : '' ?><?php else: ?>-<?php endif; ?></td>
+					<td><?= $rs && $rs['next'] ? h(ckw_rule_day_label($rs['next']) . ckw_local_time($rs['next'], ' H:i')) : '-' ?></td>
+					<td class="num"><?= $rs ? h(sprintf('%d:%02d h', intdiv($rs['left_min'], 60), $rs['left_min'] % 60)) : '-' ?></td>
+					<td style="white-space:nowrap">
+						<a data-role="button" data-inline="true" data-mini="true" data-icon="edit" data-iconpos="notext" data-ajax="false" href="index.php?page=rules&amp;view=edit&amp;idx=<?= $i ?>">Bearbeiten</a>
+						<form method="post" action="index.php?page=rules" data-ajax="false" style="display:inline">
+							<input type="hidden" name="action" value="rule_toggle"><input type="hidden" name="idx" value="<?= $i ?>">
+							<button type="submit" data-inline="true" data-mini="true" data-icon="<?= $r['enabled'] ? 'minus' : 'plus' ?>" data-iconpos="notext"><?= $r['enabled'] ? 'Deaktivieren' : 'Aktivieren' ?></button>
+						</form>
+						<form method="post" action="index.php?page=rules" data-ajax="false" style="display:inline" onsubmit="return confirm('Regel löschen?');">
+							<input type="hidden" name="action" value="rule_delete"><input type="hidden" name="idx" value="<?= $i ?>">
+							<button type="submit" data-inline="true" data-mini="true" data-icon="delete" data-iconpos="notext">Löschen</button>
+						</form>
+					</td>
+				</tr>
+			<?php endforeach; ?>
+		</table>
+	<?php endif; ?>
+	<?php if (count($ckwcfg['rules']) < CKW_RULES_MAX): ?>
+		<h4>Neue Regel aus Vorlage</h4>
+		<p>
+		<?php foreach (ckw_rule_templates() as $k => $t): ?>
+			<a data-role="button" data-inline="true" data-mini="true" data-icon="plus" data-ajax="false" href="index.php?page=rules&amp;view=edit&amp;tpl=<?= h($k) ?>"><?= h($t['label']) ?></a>
+		<?php endforeach; ?>
+		</p>
+		<p class="ckw-hint"><b>Auto laden:</b> günstigste 4 h zwischen 18 und 7 Uhr · <b>Waschmaschine:</b> 2 h am Stück unter dem Tagesmittel · <b>Wärmepumpe:</b> mind. 8 h/Tag, höchstens 3 h aus, Blöcke ab 30 min, Leistung 100/70/40 % je nach Preis · <b>SG-Ready:</b> Betriebszustand 1–4 · <b>Sperrzeit:</b> Ein im teuersten Drittel · <b>Boiler:</b> günstigste 3 h</p>
+	<?php endif; ?>
+	<p class="ckw-hint">In Loxone den Eingang (z. B. <code><?= h(str_replace('/', '_', $ckwcfg['mqtt_topic'])) ?>_rule_boiler_on</code> über MQTT) direkt an das Gerät hängen; eine Handübersteuerung macht man in Loxone. Alle Werte stehen im Reiter Loxone.</p>
+
+<?php else: ?>
+<?php
+	$r = $ruleEdit;
+	$stepsForm = $r['steps'];
+	while (count($stepsForm) < CKW_RULE_STEPS_MAX) {
+		$stepsForm[] = array('mode' => 'none', 'value' => '', 'out' => '');
+	}
+	$sel = function ($name, $value, array $opts) {
+		$x = '<select name="rule[' . $name . ']" id="r_' . $name . '" data-mini="true">';
+		foreach ($opts as $k => $v) {
+			$x .= '<option value="' . h($k) . '"' . ((string)$value === (string)$k ? ' selected' : '') . '>' . h($v) . '</option>';
+		}
+		return $x . '</select>';
+	};
+	$inp = function ($name, $value, $type = 'text', $extra = '') {
+		return '<input type="' . $type . '" name="rule[' . $name . ']" id="r_' . $name . '" value="' . h($value) . '" data-mini="true" ' . $extra . '>';
+	};
+	$compOpts = array();
+	foreach ($CKW_COMPONENTS as $k => $v) {
+		$compOpts[$k] = $k;
+	}
+?>
+	<h3 class="ckw-section"><?= $ruleIdx === null ? 'Neue Regel' : 'Regel bearbeiten' ?></h3>
+	<form method="post" action="index.php?page=rules" data-ajax="false" id="ruleForm">
+		<input type="hidden" name="action" value="rule_save">
+		<input type="hidden" name="idx" value="<?= $ruleIdx === null ? '' : (int)$ruleIdx ?>">
+		<input type="hidden" name="rule[enabled]" value="<?= $r['enabled'] ? '1' : '0' ?>">
+
+		<div class="ui-field-contain"><label for="r_name">Name</label><?= $inp('name', $r['name'], 'text', 'maxlength="40"') ?></div>
+		<div class="ui-field-contain"><label for="r_key">Kurzname (Loxone)</label><?= $inp('key', $r['key'], 'text', 'maxlength="20" placeholder="automatisch aus dem Namen"') ?></div>
+		<p class="ckw-hint">Ergibt die Schlüssel <code>rule_&lt;kurzname&gt;_on</code> usw. (nur a–z und 0–9). Nach dem Einrichten in Loxone nicht mehr ändern.</p>
+		<div class="ui-field-contain"><label for="r_type">Typ</label><?= $sel('type', $r['type'], $CKW_RULE_TYPES) ?></div>
+		<p class="ckw-hint rf" data-types="cheapest">Ein in den günstigsten Stunden des Zeitfensters, z. B. Auto laden, Boiler, Waschmaschine (mit „am Stück“).</p>
+		<p class="ckw-hint rf" data-types="runtime">Mindest-Ein-Zeit mit möglichst tiefen Kosten, dazu max. Aus-Zeit am Stück und Mindest-Laufblock, z. B. Wärmepumpe.</p>
+		<p class="ckw-hint rf" data-types="threshold">Ein, solange der Preis über (z. B. Sperrzeit) bzw. unter (z. B. Billigstrom) einer Grenze liegt.</p>
+		<p class="ckw-hint rf" data-types="window">Immer Ein im Zeitfenster – sinnvoll für einen reinen Analogwert, z. B. SG-Ready oder Leistung nach Preis.</p>
+
+		<div class="ui-field-contain"><label for="r_win_from">Zeitfenster von</label><?= $inp('win_from', $r['win_from'], 'time', 'step="900"') ?></div>
+		<div class="ui-field-contain"><label for="r_win_to">bis</label><?= $inp('win_to', $r['win_to'], 'time', 'step="900"') ?></div>
+		<p class="ckw-hint">Gleiche Zeiten (00:00–00:00) = ganzer Tag. Ist „bis“ früher als „von“, geht das Fenster über Mitternacht (z. B. 18:00–07:00 = bis 7 Uhr fertig). Ausserhalb des Fensters ist der Ausgang aus.</p>
+
+		<div class="rf" data-types="cheapest runtime">
+			<div class="ui-field-contain"><label for="r_hours"><span class="rf" data-types="cheapest">Ein-Zeit (Stunden)</span><span class="rf" data-types="runtime">Mindest-Ein-Zeit (Stunden)</span></label><?= $inp('hours', $r['hours'], 'number', 'step="0.25" min="0.25" max="24"') ?></div>
+		</div>
+		<div class="rf" data-types="cheapest">
+			<label><input type="checkbox" name="rule[block]" value="1" <?= $r['block'] ? 'checked' : '' ?>> am Stück (ein zusammenhängender Block, z. B. Waschprogramm)</label>
+		</div>
+
+		<div class="rf" data-types="cheapest runtime threshold">
+			<div class="rf" data-types="threshold">
+				<div class="ui-field-contain"><label for="r_direction">Ein, wenn Preis</label><?= $sel('direction', $r['direction'], array('above' => 'über der Grenze (Sperre)', 'below' => 'unter der Grenze')) ?></div>
+			</div>
+			<div class="ui-field-contain"><label for="r_limit_mode"><span class="rf" data-types="cheapest runtime">Obergrenze</span><span class="rf" data-types="threshold">Grenze</span></label><?= $sel('limit_mode', $r['limit_mode'], $CKW_RULE_LIMIT_MODES) ?></div>
+			<div class="ui-field-contain"><label for="r_limit_value">Wert</label><?= $inp('limit_value', $r['limit_value'], 'number', 'step="any"') ?></div>
+			<p class="ckw-hint">Fester Preis in <?= h($punit) ?> · % zum Mittel: z. B. -20 = 20 % unter dem Durchschnitt des Fensters · Drittel: 1 = Grenze des günstigsten Drittels, 2 = Grenze zum teuersten Drittel · Fixtarif: Abstand zum Fixtarif-Preis in <?= h($punit) ?> (0 = gleich teuer).</p>
+		</div>
+
+		<div class="rf" data-types="runtime">
+			<div class="ui-field-contain"><label for="r_max_off_h">Max. Aus-Zeit am Stück (Stunden, 0 = egal)</label><?= $inp('max_off_h', $r['max_off_h'], 'number', 'step="0.25" min="0" max="24"') ?></div>
+			<div class="ui-field-contain"><label for="r_min_block_min">Mindest-Laufblock (Minuten)</label><?= $inp('min_block_min', $r['min_block_min'], 'number', 'step="15" min="0" max="480"') ?></div>
+			<div class="ui-field-contain"><label for="r_priority">Vorrang</label><?= $sel('priority', $r['priority'], array('comfort' => 'Komfort: Mindestzeit und max. Aus-Zeit einhalten, notfalls über der Obergrenze', 'price' => 'Preis: nie über der Obergrenze, Mindestzeit notfalls verfehlen')) ?></div>
+		</div>
+		<div class="rf" data-types="threshold">
+			<div class="ui-field-contain"><label for="r_min_dur_min">Mindestdauer Ein/Aus (Minuten)</label><?= $inp('min_dur_min', $r['min_dur_min'], 'number', 'step="15" min="0" max="480"') ?></div>
+			<p class="ckw-hint">Verhindert häufiges Umschalten, wenn der Preis um die Grenze pendelt.</p>
+		</div>
+
+		<h4>Analogwert (optional)</h4>
+		<div class="ui-field-contain"><label for="r_analog">Analogwert</label><?= $sel('analog', $r['analog'], array('none' => 'keiner', 'steps' => 'Stufen nach Preis', 'linear' => 'linear nach Preis')) ?></div>
+		<div class="af" data-analog="steps">
+			<p class="ckw-hint">Stufen von oben nach unten: Die erste Stufe, deren Grenze der Preis nicht überschreitet, gilt. Sonst gilt „übrige Preise“.</p>
+			<table class="ckw-table" style="max-width:640px">
+				<tr><th>Preis bis</th><th>Wert</th><th>Ausgabe</th></tr>
+				<?php foreach ($stepsForm as $si => $stp): ?>
+					<tr>
+						<td><select name="rule[steps][<?= $si ?>][mode]" data-mini="true"><?php foreach ($CKW_RULE_LIMIT_MODES as $k => $v): ?><option value="<?= h($k) ?>" <?= $stp['mode'] === $k ? 'selected' : '' ?>><?= h($k === 'none' ? '– (leer)' : $v) ?></option><?php endforeach; ?></select></td>
+						<td><input type="number" step="any" name="rule[steps][<?= $si ?>][value]" value="<?= h($stp['value']) ?>" data-mini="true"></td>
+						<td><input type="number" step="any" name="rule[steps][<?= $si ?>][out]" value="<?= h($stp['out']) ?>" data-mini="true"></td>
+					</tr>
+				<?php endforeach; ?>
+			</table>
+			<div class="ui-field-contain"><label for="r_else_value">Ausgabe übrige Preise</label><?= $inp('else_value', $r['else_value'], 'number', 'step="any"') ?></div>
+		</div>
+		<div class="af" data-analog="linear">
+			<div class="ui-field-contain"><label for="r_lin_p1">Preis A (<?= h($punit) ?>)</label><?= $inp('lin_p1', $r['lin_p1'], 'number', 'step="any"') ?></div>
+			<div class="ui-field-contain"><label for="r_lin_v1">ergibt Wert</label><?= $inp('lin_v1', $r['lin_v1'], 'number', 'step="any"') ?></div>
+			<div class="ui-field-contain"><label for="r_lin_p2">Preis B (<?= h($punit) ?>)</label><?= $inp('lin_p2', $r['lin_p2'], 'number', 'step="any"') ?></div>
+			<div class="ui-field-contain"><label for="r_lin_v2">ergibt Wert</label><?= $inp('lin_v2', $r['lin_v2'], 'number', 'step="any"') ?></div>
+			<p class="ckw-hint">Dazwischen wird gleitend umgerechnet, ausserhalb bleibt der Wert bei A bzw. B.</p>
+		</div>
+		<div class="af" data-analog="steps linear">
+			<div class="ui-field-contain"><label for="r_off_value">Wert, wenn die Regel aus ist</label><?= $inp('off_value', $r['off_value'], 'number', 'step="any"') ?></div>
+			<div class="ui-field-contain"><label for="r_hold_min">Haltezeit pro Wert (Minuten)</label><?= $inp('hold_min', $r['hold_min'], 'number', 'step="15" min="0" max="480"') ?></div>
+			<p class="ckw-hint">Ein neuer Wert gilt erst, wenn der bisherige mindestens so lange anlag (gegen Springen). Beim Ein-/Ausschalten wechselt der Wert sofort.</p>
+		</div>
+
+		<h4>Weiteres</h4>
+		<div class="ui-field-contain"><label for="r_comp">Preisbasis</label><?= $sel('comp', $r['comp'], $compOpts) ?></div>
+		<div class="ui-field-contain"><label for="r_nodata">Ohne aktuelle CKW-Preise</label><?= $sel('nodata', $r['nodata'], array('plan' => 'nach Plan (CKW-Durchschnittspreis)', 'off' => 'Aus', 'on' => 'Ein')) ?></div>
+		<div class="ui-field-contain"><label for="r_power_kw">Leistung des Geräts (kW, optional)</label><?= $inp('power_kw', $r['power_kw'], 'number', 'step="any" min="0"') ?></div>
+		<p class="ckw-hint">Mit Leistung schätzt das Plugin die Kosten der geplanten Ein-Zeit (<code>rule_…_cost</code>).</p>
+
+		<h4>Vorschau</h4>
+		<p id="ruleSummary" class="ckw-hint">Wird berechnet …</p>
+		<div class="ckw-chart"><canvas id="ruleChart"></canvas></div>
+		<p class="ckw-hint">Grün = Ein, Linie = Preis (<?= h($punit) ?>), gestrichelt = Grenze, orange = Analogwert. Helle Fläche = Preise noch nicht publiziert (CKW-Durchschnittspreis). Die Vorschau rechnet mit den Formularwerten, ohne zu speichern.</p>
+
+		<button type="submit" data-inline="true" data-icon="check">Speichern</button>
+		<a data-role="button" data-inline="true" data-ajax="false" href="index.php?page=rules">Abbrechen</a>
+	</form>
+	<script src="js/chart.umd.min.js"></script>
+	<script>
+	(function () {
+		var form = document.getElementById('ruleForm');
+		function val(n) { var e = document.getElementById('r_' + n); return e ? e.value : ''; }
+		function toggle() {
+			var t = val('type'), a = val('analog');
+			Array.prototype.forEach.call(document.querySelectorAll('.rf'), function (e) {
+				e.style.display = e.getAttribute('data-types').split(' ').indexOf(t) >= 0 ? '' : 'none';
+			});
+			Array.prototype.forEach.call(document.querySelectorAll('.af'), function (e) {
+				e.style.display = e.getAttribute('data-analog').split(' ').indexOf(a) >= 0 ? '' : 'none';
+			});
+		}
+		var chart = null, timer = null;
+		function preview() {
+			var fd = new FormData(form);
+			fetch('index.php?rules_preview=1', { method: 'POST', body: fd, credentials: 'same-origin' })
+				.then(function (r) { return r.json(); })
+				.then(function (d) {
+					if (d.error) { document.getElementById('ruleSummary').textContent = d.error; return; }
+					var s = d.summary;
+					var txt = (s['in'] ? 'Aktuelles Zeitfenster ' : 'Nächstes Zeitfenster ') + s.window + ': ' + Math.floor(s.on_min / 60) + ':' + ('0' + s.on_min % 60).slice(-2) + ' h Ein geplant';
+					if (s.limit !== null) txt += ', Grenze ' + s.limit.toFixed(<?= $ckwcfg['unit'] === 'rp' ? 2 : 4 ?>) + ' <?= h($punit) ?>';
+					if (s.cost_chf !== null) txt += ', geschätzte Kosten ' + s.cost_chf.toFixed(2) + ' CHF';
+					document.getElementById('ruleSummary').textContent = txt + '.';
+					var pmax = Math.max.apply(null, d.price.filter(function (x) { return x !== null; }).concat([0]));
+					var data = {
+						labels: d.labels,
+						datasets: [
+							{ type: 'line', label: 'Preis', data: d.price, yAxisID: 'p', borderColor: '#1f6fb2', pointRadius: 0, borderWidth: 2, stepped: true },
+							{ type: 'line', label: 'Grenze', data: d.limit, yAxisID: 'p', borderColor: '#888', borderDash: [6, 4], pointRadius: 0, borderWidth: 1.5, stepped: true },
+							{ type: 'line', label: 'Analogwert', data: d.value, yAxisID: 'v', borderColor: '#e67e22', pointRadius: 0, borderWidth: 2, stepped: true, hidden: d.value.every(function (x) { return x === null; }) },
+							{ type: 'bar', label: 'Ein', data: d.on.map(function (o) { return o ? 1 : null; }), yAxisID: 'o', backgroundColor: 'rgba(60,176,67,0.35)', barPercentage: 1.0, categoryPercentage: 1.0 },
+							{ type: 'bar', label: 'geschätzte Preise', data: d.real.map(function (r) { return r ? null : 1; }), yAxisID: 'o', backgroundColor: 'rgba(0,0,0,0.05)', barPercentage: 1.0, categoryPercentage: 1.0 }
+						]
+					};
+					var opts = {
+						responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
+						scales: {
+							x: { stacked: true, ticks: { autoSkip: true, maxTicksLimit: 16 } },
+							p: { position: 'left', grace: '10%', title: { display: true, text: '<?= h($punit) ?>' } },
+							v: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Wert' } },
+							o: { display: false, min: 0, max: 1, stacked: false }
+						}
+					};
+					if (chart) { chart.data = data; chart.update(); } else { chart = new Chart(document.getElementById('ruleChart'), { data: data, options: opts }); }
+				})
+				.catch(function () { document.getElementById('ruleSummary').textContent = 'Vorschau nicht verfügbar.'; });
+		}
+		function schedule() { clearTimeout(timer); timer = setTimeout(preview, 400); }
+		form.addEventListener('change', function () { toggle(); schedule(); });
+		form.addEventListener('input', schedule);
+		toggle();
+		preview();
+	})();
+	</script>
 <?php endif; ?>
 
 <?php elseif ($page === 'loxone'): ?>

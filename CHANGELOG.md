@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0-beta.1 – 2026-10-21 (interne Beta, nicht veröffentlicht)
+- Neu: **Schaltregeln** (Reiter **Regeln**, max. 20): Typen Günstigste Zeiten (optional am Stück), Laufzeit (Mindest-Ein-Zeit, max. Aus-Zeit am Stück, Mindest-Laufblock, Vorrang Komfort/Preis), Preisschwelle (mit Mindestdauer) und Immer im Zeitfenster
+- Zeitfenster pro Regel (auch über Mitternacht), Grenzen absolut, % zum Mittel, Drittel oder relativ zum Fixtarif
+- Analogwert pro Regel (Stufen oder linear, Aus-Wert, Haltezeit), z. B. Wärmepumpenleistung oder SG-Ready 1–4
+- Vorlagen (Auto laden, Waschmaschine, Wärmepumpe, SG-Ready, Sperrzeit, Boiler) und Live-Vorschau im Editor
+- Ausgänge `rule_<k>_on`, `_value`, `_value_next`, `_next_min`, `_next_clock`, `_left_min`, `_done_min`, `_cost` sowie `<topic>/rules/json`
+
 ## 1.2.0-beta.2 – 2026-10-21 (interne Beta, nicht veröffentlicht)
 - Statistik: Beim Zähler-Baustein wird der eingestellte Ausgang gelesen (Standard **Mrc**), bisher lieferte der Miniserver den ersten Ausgang (Pf = Leistung). Bei falschem Ausgang zeigt „Zählerstand jetzt lesen“ alle vorhandenen an.
 - Statistik: Knopf „Verbrauchsdaten löschen“ (Neustart nach falscher Einrichtung)

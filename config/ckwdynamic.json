@@ -29,5 +29,6 @@
   "meter_output": "Mrc",
   "meter_topic": "",
   "meter_unit": "kwh",
-  "meter_max_kwh": 50
+  "meter_max_kwh": 50,
+  "rules": []
 }

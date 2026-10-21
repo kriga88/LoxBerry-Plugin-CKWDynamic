@@ -149,6 +149,46 @@ Reiter **Statistik → Einrichtung**, Quelle wählen:
   * Gespeicherte Preise und Kosten ändern sich nicht nachträglich, wenn du später Einstellungen (z. B. Stromprodukt) änderst.
   * Massgebend für die Abrechnung bleibt die Rechnung der CKW (Leistungstarif, Messentgelt und Grundgebühren sind nicht enthalten).
 
+===== Schaltregeln (ab 1.3.0) =====
+
+Der Loxone Spotpreis-Optimierer lässt sich nur wenig einstellen. Im Reiter **Regeln** legst du darum eigene Regeln an (max. 20). Jede Regel schaltet einen Ausgang ''rule_<kurzname>_on'' (0/1) und auf Wunsch einen **Analogwert** ''rule_<kurzname>_value'', z. B. eine Leistung in % oder einen SG-Ready-Zustand. Das Plugin plant alle 15 Minuten neu mit den aktuellen Preisen. Stunden, die CKW noch nicht publiziert hat (Folgetag vor ca. 12 Uhr), rechnet es mit dem CKW-Durchschnittspreis.
+
+==== Regeltypen ====
+
+^ Typ ^ Ein, wenn … ^ Beispiel ^
+| Günstigste Zeiten | die Viertelstunde zu den günstigsten //N// Stunden des Zeitfensters gehört; optional **am Stück** (ein Block) und mit Obergrenze | Auto laden, Boiler, Waschmaschine |
+| Laufzeit | die **Mindest-Ein-Zeit** am günstigsten erreicht wird, unter Einhaltung der **max. Aus-Zeit am Stück** und eines **Mindest-Laufblocks** | Wärmepumpe |
+| Preisschwelle | der Preis über (Sperre) bzw. unter einer Grenze liegt, mit Mindestdauer gegen Takten | Sperrzeit, Billigstrom |
+| Immer im Zeitfenster | immer (für einen reinen Analogwert) | SG-Ready, Leistung nach Preis |
+
+==== Einstellungen ====
+
+  * **Zeitfenster** von–bis: Standard 00:00–00:00 = ganzer Tag. Ist „bis“ früher als „von“, geht das Fenster über Mitternacht (18:00–07:00 = „bis 7 Uhr fertig“). Ausserhalb ist der Ausgang aus.
+  * **Grenzen** (Obergrenze bzw. Schwelle):
+    * fester Preis
+    * % zum Mittel des Fensters (z. B. -20)
+    * Drittel des Fensters (1 = günstigstes Drittel, 2 = Grenze zum teuersten Drittel)
+    * Abstand zum Fixtarif
+  * **Vorrang** (Laufzeit): //Komfort// hält Mindestzeit und max. Aus-Zeit ein, notfalls über der Obergrenze. //Preis// schaltet nie über der Obergrenze ein und verfehlt dafür notfalls die Mindestzeit.
+  * **Analogwert:**
+    * //Stufen//: bis zu 5 Preisgrenzen mit je einem Wert, dazu ein Wert für die übrigen Preise
+    * //linear//: Preis A → Wert X, Preis B → Wert Y, dazwischen gleitend
+    * dazu ein Wert für „Regel aus“ und eine Haltezeit gegen Springen
+  * **Ohne aktuelle Preise:** nach Plan, Aus oder Ein.
+  * **Leistung** (optional): Damit schätzt das Plugin die Kosten der geplanten Ein-Zeit.
+  * Eine **Vorschau** zeigt beim Bearbeiten Preis, Ein-Zeiten, Grenze und Analogwert für das aktuelle und das nächste Zeitfenster.
+
+==== Vorlagen ====
+
+  * **Auto laden:** günstigste 4 h zwischen 18 und 7 Uhr
+  * **Waschmaschine:** 2 h am Stück unter dem Mittel, 8–22 Uhr
+  * **Wärmepumpe:** mind. 8 h pro Tag, höchstens 3 h aus, Blöcke ab 30 min, Vorrang Komfort; Leistung 100 % (20 % unter Mittel), 70 % (unter Mittel), sonst 40 %
+  * **SG-Ready:** 4 = Anlaufbefehl (25 % unter Mittel), 3 = Einschaltempfehlung (günstigstes Drittel), 2 = normal, 1 = Sperre (teuerstes Drittel)
+  * **Sperrzeit:** Ein im teuersten Drittel
+  * **Boiler:** günstigste 3 h
+
+In Loxone den Eingang direkt an das Gerät hängen. Handbetrieb, Frostschutz usw. regelst du weiterhin in Loxone.
+
 ===== Jährlich wechselnde Preise =====
 
 Die CKW passt Netz- und Energiepreise jeweils auf den 1. Januar an. Das Plugin ist so gebaut, dass dafür in der Regel **kein Plugin-Update** nötig ist:
@@ -246,6 +286,11 @@ Wer lieber die Betriebsart **Absolut** nutzt, aktiviert in den Einstellungen „
 | ''stat_avgprice_today'' / ''_month'' / ''_year'' | Statistik: bezahlter Durchschnittspreis (Einheit wie eingestellt, -1 = noch kein Verbrauch) |
 | ''stat_saving_today'' / ''_month'' / ''_year'' | Statistik: Ersparnis gegenüber Fixtarif in CHF (negativ = Mehrkosten, -1 = kein Fixtarif) |
 | ''stat_meter_ok'' | 1 = Zählerstand im letzten Lauf gelesen, 0 = Fehler |
+| ''rule_<k>_on'' | Schaltregel: 1 = Ein, 0 = Aus (ab 1.3.0, ''<k>'' = Kurzname der Regel) |
+| ''rule_<k>_value'' / ''rule_<k>_value_next'' | Analogwert jetzt / in einer Stunde (nur wenn eingestellt) |
+| ''rule_<k>_next_min'' / ''rule_<k>_next_clock'' | Minuten bis zum nächsten Ein (0 = jetzt) / Uhrzeit als HHMM (z. B. 1830), -1 = keiner geplant |
+| ''rule_<k>_left_min'' / ''rule_<k>_done_min'' | Geplante / bereits gelaufene Ein-Zeit im Zeitfenster (Minuten) |
+| ''rule_<k>_cost'' | Geschätzte Kosten der geplanten Ein-Zeit (CHF, nur mit Leistung) |
 | ''cheap_start_off'' | Start des günstigsten Zeitfensters in Stunden ab jetzt (-1 = nicht genug Daten) |
 | ''cheap_start_clock'' | Start des günstigsten Zeitfensters als Uhrzeit (Stunde) |
 | ''cheap_avg'' | Durchschnittspreis im günstigsten Zeitfenster |

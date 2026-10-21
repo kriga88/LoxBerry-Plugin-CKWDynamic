@@ -19,6 +19,7 @@ define('CKW_TARIFF_CACHE_FORMAT', 2);         // erhoehen, wenn sich die Auswert
 define('CKW_TARIFFS_PAGE', getenv('CKW_TARIFFS_PAGE') ?: 'https://www.ckw.ch/energie/strom/stromprodukte/privat');   // verlinkt die maschinenlesbaren Tarifdateien (Umgebungsvariable nur fuer Tests)
 
 require_once __DIR__ . '/ckw_stats.php';
+require_once __DIR__ . '/ckw_rules.php';
 
 // Komponente => Beschreibung (Reihenfolge = Anzeige)
 $CKW_COMPONENTS = array(
@@ -111,6 +112,7 @@ function ckw_defaults()
 		'meter_topic'      => '',
 		'meter_unit'       => 'kwh',
 		'meter_max_kwh'    => 50,
+		'rules'            => array(),
 	);
 }
 
@@ -244,6 +246,9 @@ function ckw_sanitize_config(array $in, &$errors = null)
 	if ($out['meter_source'] === 'mqtt' && $out['meter_topic'] === '') {
 		$errors[] = 'Statistik: MQTT-Topic des Zählerstands fehlt.';
 	}
+
+	// Schaltregeln
+	$out['rules'] = ckw_sanitize_rules($c['rules'], $errors);
 
 	return $out;
 }
@@ -1407,6 +1412,19 @@ function ckw_key_description($key, $unit = 'CHF/kWh')
 			case 'saving':   return "Statistik {$p[$m[2]]}: Ersparnis gegenüber Fixtarif in CHF (negativ = Mehrkosten, -1 = kein Fixtarif)";
 		}
 	}
+	if (preg_match('/^rule_([a-z0-9]+)_(on|value|value_next|next_min|next_clock|left_min|done_min|cost)$/', $key, $m)) {
+		$n = "Regel {$m[1]}";
+		switch ($m[2]) {
+			case 'on':         return "$n: 1 = Ein, 0 = Aus";
+			case 'value':      return "$n: Analogwert der aktuellen Viertelstunde";
+			case 'value_next': return "$n: Analogwert in einer Stunde (-1 = unbekannt)";
+			case 'next_min':   return "$n: Minuten bis zum nächsten Ein (0 = jetzt Ein, -1 = keiner geplant)";
+			case 'next_clock': return "$n: Uhrzeit des nächsten Ein als HHMM, z. B. 1830 (-1 = keiner geplant)";
+			case 'left_min':   return "$n: geplante Ein-Zeit bis zum Ende des Zeitfensters (Minuten)";
+			case 'done_min':   return "$n: bereits gelaufene Ein-Zeit im aktuellen Zeitfenster (Minuten)";
+			case 'cost':       return "$n: geschätzte Kosten der geplanten Ein-Zeit im Zeitfenster (CHF)";
+		}
+	}
 	if ($key === 'stat_meter_ok') {
 		return '1 = Zählerstand im letzten Lauf gelesen, 0 = Fehler';
 	}
@@ -1579,7 +1597,7 @@ function ckw_key_unit($key)
 	if ($key === 'formula_factor') {
 		return '<v.4>';
 	}
-	if (preg_match('/^stat_(cost|saving)_/', $key)) {
+	if (preg_match('/^stat_(cost|saving)_/', $key) || preg_match('/^rule_[a-z0-9]+_(cost|value|value_next)$/', $key)) {
 		return '<v.2>';
 	}
 	if (ckw_key_is_price($key) || preg_match('/^stat_kwh_/', $key)) {
@@ -1608,6 +1626,11 @@ function ckw_udp_template_xml(array $keys, $port, $unit = 'CHF/kWh')
 {
 	$e = function ($t) { return htmlspecialchars((string)$t, ENT_XML1 | ENT_QUOTES, 'UTF-8'); };
 	$digital = array('online', 'api_ok', 'data_valid', 'below_avg', 'stat_meter_ok');
+	foreach ($keys as $k) {
+		if (preg_match('/^rule_[a-z0-9]+_on$/', $k)) {
+			$digital[] = $k;
+		}
+	}
 	$x = '<?xml version="1.0" encoding="utf-8"?>' . "\r\n";
 	$x .= '<VirtualInUdp Title="CKW Dynamischer Tarif" Comment="LoxBerry-Plugin ckwdynamic" Address="" Port="' . (int)$port . '">' . "\r\n";
 	foreach ($keys as $k) {
@@ -1760,6 +1783,20 @@ function ckw_run(array $cfg, $log = null, ?DateTimeImmutable $now = null)
 	}
 	ckw_log($log, 'INF', 'Aktuell total: ' . $out['values']['total_now'] . ' ' . ($cfg['unit'] === 'rp' ? 'Rp.' : 'CHF') . '/kWh, Stunden mit Daten: ' . $res['hours_avail'] . '/24');
 
+	// Schaltregeln - ein Fehler hier darf den Preisabruf nie stoppen
+	$rulesInfo = null;
+	if ($cfg['rules']) {
+		try {
+			$nowTs = $now->getTimestamp();
+			$day = $now->setTime(0, 0, 0);
+			$table = ckw_rules_price_table($raw, $cfg, $tariffs['data'], $day->modify('-1 day')->getTimestamp(), $day->modify('+3 day')->getTimestamp());
+			$rulesInfo = ckw_rules_run($cfg, $table, $nowTs, $log);
+			$out['values'] += $rulesInfo['values'];
+		} catch (Throwable $e) {
+			ckw_log($log, 'ERR', 'Schaltregeln: ' . $e->getMessage());
+		}
+	}
+
 	// Versand
 	$sent = array('mqtt' => null, 'udp' => null);
 	$errors = array();
@@ -1771,6 +1808,9 @@ function ckw_run(array $cfg, $log = null, ?DateTimeImmutable $now = null)
 			$msgs["$base/$k"] = $val;
 		}
 		$msgs["$base/data/json"] = json_encode(ckw_state_payload($res, $out, $cfg), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+		if ($rulesInfo !== null) {
+			$msgs["$base/rules/json"] = json_encode(ckw_round_deep($rulesInfo['rules']), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+		}
 		// Nicht mehr verwendete retained Topics (z. B. nach Aenderung der Auswahl) loeschen
 		if ($published && !empty($published['topics'])) {
 			foreach ($published['topics'] as $t) {
@@ -1823,6 +1863,7 @@ function ckw_run(array $cfg, $log = null, ?DateTimeImmutable $now = null)
 		'tariffs_source'  => $tariffs['source'],
 		'tariffs_updated' => $tariffs['updated'],
 		'stats'  => $statInfo,
+		'rules'  => $rulesInfo !== null ? $rulesInfo['rules'] : null,
 	);
 	ckw_write_json(ckw_state_file(), $state);
 	return $ok;
