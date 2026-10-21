@@ -119,6 +119,36 @@ Das Plugin rechnet zusätzlich den Preis, den du mit dem **fixen (nicht dynamisc
   * Ist für das laufende Jahr kein fixer Netztarif bekannt (z. B. falls CKW den Fixtarif nicht mehr anbietet), gehen ''fixed_total'', ''fixed_diff'', ''cheaper_than_fixed'' und ''cheaper_hours'' auf ''-1'' – ein Vorjahreswert wird bewusst nicht verwendet. Der Loxone-Eingang geht dadurch auf Fehler; zusätzlich Hinweis in ''price_warning'', Log und Weboberfläche.
   * Nicht berücksichtigt sind Leistungstarif (fix 1.50 statt dynamisch 1.00 CHF/kW/Monat) und Messentgelt, da sie nicht pro kWh anfallen.
 
+===== Verbrauchsstatistik (ab 1.2.0) =====
+
+Weder Kundenportal noch App der CKW zeigen, **wann** du zu **welchem** dynamischen Preis bezogen hast. Das Plugin kann das selbst erfassen: Es liest alle 15 Minuten den Zählerstand Bezug deines Netzzählers, bildet die Differenz zum letzten Stand und bewertet diesen Verbrauch mit dem Preis genau dieser Viertelstunde (Total wie eingestellt, inkl. Konzession, Zusatzkosten und MwSt). Parallel wird gerechnet, was derselbe Verbrauch mit dem Fixtarif gekostet hätte.
+
+==== Einrichtung ====
+
+Reiter **Statistik → Einrichtung**, Quelle wählen:
+
+  * **Miniserver abfragen:** In Loxone Config einen virtuellen Eingang oder Merker mit eindeutigem Namen (z. B. ''CKW_Zaehler'') an den Ausgang **Mrc** (Zählerstand Bezug) des Energiezählers bzw. Netzzähler-Bausteins hängen. Im Plugin Miniserver und diesen Namen eintragen. Der LoxBerry-Benutzer des Miniservers braucht Leserechte. Eine Einheit im Wert („12345.6kWh“) stört nicht.
+  * **MQTT-Topic:** Der Zählerstand muss **retained** auf dem LoxBerry-Broker liegen, z. B. von Loxone über das MQTT-Gateway (Präfix ''retain'') oder direkt von einem Smartmeter-Adapter.
+  * Einheit kWh oder Wh, Plausibilitätsgrenze pro Viertelstunde (Standard 50 kWh).
+  * Mit **Zählerstand jetzt lesen** lässt sich die Verbindung vor dem Speichern prüfen.
+
+==== Auswertungen ====
+
+  * **Tag:** Preiskurve (Viertelstunden) überlagert mit dem Verbrauch, Fixtarif als Linie, Tabelle aller Viertelstunden.
+  * **Monat / Jahr:** Verbrauch, Kosten, bezahlter Durchschnittspreis und Ersparnis pro Tag bzw. Monat.
+  * **Verbrauch nach Preisstufe:** günstigstes / mittleres / teuerstes Drittel jedes Tages sowie unter / über dem Fixtarif.
+  * **CSV-Export** der Viertelstunden (Excel-tauglich).
+  * Kennzahlen als Loxone-Ausgänge (''stat_*'', siehe Alle Werte).
+
+==== Gut zu wissen ====
+
+  * Fehlt ein Lauf (Neustart, Ausfall), verteilt das Plugin den Verbrauch gleichmässig auf die fehlenden Viertelstunden und markiert sie als „geschätzt“ (*). Die kWh-Summe bleibt korrekt.
+  * Ein gesunkener Zählerstand (Zählertausch, Reset) oder ein Sprung über der Plausibilitätsgrenze wird verworfen und im Log gemeldet.
+  * Der „Jetzt abrufen“-Knopf verbucht keinen Verbrauch, nur die regulären Läufe auf der Viertelstunde.
+  * **SD-Karte:** Die Werte sammeln sich in der RAM-Disk und werden einmal pro Stunde in ''statistics.sqlite'' geschrieben (ca. 3 MB pro Jahr). Vor einem Plugin-Update wird der Puffer gesichert. Bei einem Stromausfall geht höchstens die Feinauflösung der laufenden Stunde verloren.
+  * Gespeicherte Preise und Kosten ändern sich nicht nachträglich, wenn du später Einstellungen (z. B. Stromprodukt) änderst.
+  * Massgebend für die Abrechnung bleibt die Rechnung der CKW (Leistungstarif, Messentgelt und Grundgebühren sind nicht enthalten).
+
 ===== Jährlich wechselnde Preise =====
 
 Die CKW passt Netz- und Energiepreise jeweils auf den 1. Januar an. Das Plugin ist so gebaut, dass dafür in der Regel **kein Plugin-Update** nötig ist:
@@ -211,6 +241,11 @@ Wer lieber die Betriebsart **Absolut** nutzt, aktiviert in den Einstellungen „
 | ''fixed_total'' | Preis mit dem fixen CKW-Netztarif (Netz E bzw. Netz LG7) bei gleichem Stromprodukt, Abgaben und MwSt – Referenz (ab 1.1.0) |
 | ''fixed_diff'' | Aktueller Preis minus Fixtarif-Preis: negativ = dynamisch günstiger |
 | ''cheaper_than_fixed'' / ''cheaper_hours'' | 1 = aktuelle Viertelstunde günstiger als der Fixtarif / Anzahl der nächsten 24 Stunden unter dem Fixtarif |
+| ''stat_kwh_today'' / ''_month'' / ''_year'' | Statistik: Verbrauch heute / laufender Monat / laufendes Jahr (kWh, ab 1.2.0, nur mit eingerichteter Statistik) |
+| ''stat_cost_today'' / ''_month'' / ''_year'' | Statistik: Energiekosten dynamisch (CHF) |
+| ''stat_avgprice_today'' / ''_month'' / ''_year'' | Statistik: bezahlter Durchschnittspreis (Einheit wie eingestellt, -1 = noch kein Verbrauch) |
+| ''stat_saving_today'' / ''_month'' / ''_year'' | Statistik: Ersparnis gegenüber Fixtarif in CHF (negativ = Mehrkosten, -1 = kein Fixtarif) |
+| ''stat_meter_ok'' | 1 = Zählerstand im letzten Lauf gelesen, 0 = Fehler |
 | ''cheap_start_off'' | Start des günstigsten Zeitfensters in Stunden ab jetzt (-1 = nicht genug Daten) |
 | ''cheap_start_clock'' | Start des günstigsten Zeitfensters als Uhrzeit (Stunde) |
 | ''cheap_avg'' | Durchschnittspreis im günstigsten Zeitfenster |

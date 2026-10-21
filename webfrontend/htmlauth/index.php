@@ -1,6 +1,6 @@
 <?php
 /**
- * CKW Dynamischer Tarif - Weboberflaeche (Einstellungen, Preisuebersicht, Loxone-Einbindung)
+ * CKW Dynamischer Tarif - Weboberflaeche (Einstellungen, Preisuebersicht, Statistik, Loxone-Einbindung)
  */
 
 require_once "loxberry_system.php";
@@ -33,6 +33,35 @@ if (isset($_GET['download']) && $_GET['download'] === 'udp') {
 }
 
 // ---------------------------------------------------------------------------
+// Statistik: gewaehlter Zeitraum (Tag / Monat / Jahr)
+// ---------------------------------------------------------------------------
+$statView = isset($_GET['view']) && in_array($_GET['view'], array('day', 'month', 'year', 'setup'), true) ? $_GET['view'] : 'day';
+$tzCh = new DateTimeZone(CKW_TZ);
+$statRef = new DateTimeImmutable('now', $tzCh);
+if ($statView === 'day' && isset($_GET['d']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['d'])) {
+	$statRef = DateTimeImmutable::createFromFormat('!Y-m-d', $_GET['d'], $tzCh) ?: $statRef;
+} elseif ($statView === 'month' && isset($_GET['m']) && preg_match('/^\d{4}-\d{2}$/', $_GET['m'])) {
+	$statRef = DateTimeImmutable::createFromFormat('!Y-m-d', $_GET['m'] . '-01', $tzCh) ?: $statRef;
+} elseif ($statView === 'year' && isset($_GET['y']) && preg_match('/^\d{4}$/', $_GET['y'])) {
+	$statRef = DateTimeImmutable::createFromFormat('!Y-m-d', $_GET['y'] . '-01-01', $tzCh) ?: $statRef;
+}
+$statRef = $statRef->setTime(12, 0, 0);   // Mitte des Tages: robust bei Zeitumstellung
+
+// CSV-Export des gewaehlten Zeitraums (Viertelstunden)
+if (isset($_GET['csv']) && in_array($statView, array('day', 'month', 'year'), true)) {
+	list($a, $z) = ckw_stats_period($statView, $statRef->getTimestamp());
+	$name = $statRef->format($statView === 'day' ? 'Y-m-d' : ($statView === 'month' ? 'Y-m' : 'Y'));
+	header('Content-Type: text/csv; charset=utf-8');
+	header('Content-Disposition: attachment; filename="ckw_statistik_' . $name . '.csv"');
+	try {
+		echo "\xEF\xBB\xBF" . ckw_stats_csv($a, $z);   // BOM fuer Excel (Umlaute)
+	} catch (Exception $e) {
+		echo 'Fehler: ' . $e->getMessage();
+	}
+	exit;
+}
+
+// ---------------------------------------------------------------------------
 // Formularaktionen
 // ---------------------------------------------------------------------------
 $page = isset($_GET['page']) ? $_GET['page'] : 'settings';
@@ -41,7 +70,7 @@ $errors = array();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 	if ($_POST['action'] === 'save') {
-		$in = $_POST;
+		$in = array_merge($ckwcfg, $_POST);   // Felder anderer Seiten (Statistik) bleiben erhalten
 		foreach (array('vat_enabled', 'series_rel', 'series_abs', 'series_tmr', 'mqtt_enabled', 'udp_enabled', 'tariffs_remote', 'formula_enabled') as $cb) {
 			$in[$cb] = isset($_POST[$cb]) ? '1' : '0';
 		}
@@ -60,6 +89,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 			}
 		} else {
 			$ckwcfg = $new;
+		}
+	} elseif ($_POST['action'] === 'stats_save' || $_POST['action'] === 'meter_test') {
+		// Statistik -> Einrichtung: nur die Zaehler-Felder uebernehmen
+		$in = $ckwcfg;
+		foreach (array('meter_source', 'meter_msnr', 'meter_name', 'meter_topic', 'meter_unit', 'meter_max_kwh') as $f) {
+			if (isset($_POST[$f])) {
+				$in[$f] = $_POST[$f];
+			}
+		}
+		$new = ckw_sanitize_config($in, $errors);
+		$ckwcfg = $new;
+		if ($_POST['action'] === 'meter_test') {
+			$errors = array();
+			$merr = null;
+			$mval = $new['meter_source'] === 'off' ? null : ckw_stats_read_meter($new, $merr);
+			if ($mval !== null) {
+				$messages[] = 'Zählerstand gelesen: ' . number_format($mval, 3, '.', "'") . ' kWh (noch nicht gespeichert).';
+			} else {
+				$errors[] = 'Zählerstand nicht gelesen: ' . ($merr ?: 'Bitte zuerst eine Quelle wählen.');
+			}
+		} elseif (!$errors) {
+			if (ckw_save_config($new)) {
+				exec("$fetchCmd > /dev/null 2>&1 &");
+				$messages[] = 'Einstellungen der Statistik gespeichert.' . ($new['meter_source'] !== 'off' ? ' Ab der nächsten Viertelstunde wird der Verbrauch erfasst.' : '');
+			} else {
+				$errors[] = 'Einstellungen konnten nicht gespeichert werden (Schreibrechte?).';
+			}
 		}
 	} elseif ($_POST['action'] === 'fetch') {
 		$output = array();
@@ -86,12 +142,14 @@ $navbar[1]['Name'] = 'Einstellungen';
 $navbar[1]['URL'] = 'index.php?page=settings';
 $navbar[2]['Name'] = 'Preise';
 $navbar[2]['URL'] = 'index.php?page=prices';
-$navbar[3]['Name'] = 'Loxone';
-$navbar[3]['URL'] = 'index.php?page=loxone';
-$navbar[4]['Name'] = 'Log';
-$navbar[4]['URL'] = LBWeb::loglist_url(array('NAME' => 'Abruf'));
-$navbar[4]['target'] = '_blank';
-$active = array('settings' => 1, 'prices' => 2, 'loxone' => 3);
+$navbar[3]['Name'] = 'Statistik';
+$navbar[3]['URL'] = 'index.php?page=stats';
+$navbar[4]['Name'] = 'Loxone';
+$navbar[4]['URL'] = 'index.php?page=loxone';
+$navbar[5]['Name'] = 'Log';
+$navbar[5]['URL'] = LBWeb::loglist_url(array('NAME' => 'Abruf'));
+$navbar[5]['target'] = '_blank';
+$active = array('settings' => 1, 'prices' => 2, 'stats' => 3, 'loxone' => 4);
 $navbar[isset($active[$page]) ? $active[$page] : 1]['active'] = true;
 
 LBWeb::lbheader($template_title, $helplink, 'help.html');
@@ -111,6 +169,14 @@ LBWeb::lbheader($template_title, $helplink, 'help.html');
 	.ckw-hint { color: #666; font-size: 0.9em; }
 	code { background: #f3f3f3; padding: 1px 4px; border-radius: 3px; }
 	.ckw-section { margin-top: 24px; }
+	.ckw-subnav a { margin-right: 4px; }
+	.ckw-tiles { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+	.ckw-tile { border: 1px solid #ddd; border-radius: 6px; padding: 8px 12px; min-width: 130px; }
+	.ckw-tile b { display: block; font-size: 1.3em; }
+	.ckw-tile span { color: #666; font-size: 0.85em; }
+	.ckw-chart { position: relative; width: 100%; max-width: 1000px; height: 340px; }
+	.ckw-pos { color: #2e8b57; }
+	.ckw-neg { color: #c0392b; }
 </style>
 
 <?php foreach ($messages as $m): ?>
@@ -346,6 +412,239 @@ if ($state && isset($state['run'])) {
 			</tr>
 		<?php endforeach; ?>
 	</table>
+<?php endif; ?>
+
+<?php elseif ($page === 'stats'): ?>
+<!-- =================================================================== -->
+<!-- STATISTIK                                                            -->
+<!-- =================================================================== -->
+<?php
+if ($ckwcfg['meter_source'] === 'off') {
+	$statView = 'setup';
+}
+$pf = $ckwcfg['unit'] === 'rp' ? 100 : 1;
+$punit = $ckwcfg['unit'] === 'rp' ? 'Rp./kWh' : 'CHF/kWh';
+$pdec = $ckwcfg['unit'] === 'rp' ? 2 : 4;
+$chf = function ($v) { return $v === null ? '-' : number_format($v, 2, '.', "'"); };
+$kwh = function ($v) { return $v === null ? '-' : number_format($v, 2, '.', "'"); };
+$pr = function ($v) use ($pf, $pdec) { return $v === null ? '-' : number_format($v * $pf, $pdec, '.', "'"); };
+$monthNames = array(1 => 'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember');
+$dayNames = array('So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa');
+$sub = array('day' => 'Tag', 'month' => 'Monat', 'year' => 'Jahr', 'setup' => 'Einrichtung');
+?>
+<div class="ckw-subnav" style="margin-top:12px">
+	<?php foreach ($sub as $v => $label): ?>
+		<a data-role="button" data-inline="true" data-mini="true" data-ajax="false" <?= $statView === $v ? 'data-theme="b"' : '' ?> href="index.php?page=stats&amp;view=<?= $v ?>"><?= h($label) ?></a>
+	<?php endforeach; ?>
+</div>
+
+<?php if ($statView === 'setup'): ?>
+	<?php $si = ($state && isset($state['run']['stats'])) ? $state['run']['stats'] : null; ?>
+	<h3 class="ckw-section">Zählerstand für die Verbrauchsstatistik</h3>
+	<?php if ($ckwcfg['meter_source'] === 'off'): ?>
+		<div class="ckw-msg ckw-warn">Die Statistik ist noch nicht eingerichtet. Wähle unten, woher das Plugin den Zählerstand Bezug (kWh) deines Netzzählers bekommt.</div>
+	<?php elseif ($si): ?>
+		<p><span class="ckw-status" style="background:<?= $si['meter_ok'] ? '#3cb043' : '#d9534f' ?>"></span>
+		<?= $si['meter_ok'] ? 'Letzter Lauf: Zählerstand ' . h(number_format($si['meter'], 3, '.', "'")) . ' kWh gelesen.' : 'Letzter Lauf: ' . h($si['error']) ?></p>
+	<?php endif; ?>
+	<p class="ckw-hint">Das Plugin liest bei jedem Lauf (alle 15 Minuten) den Zählerstand. Die Differenz zum letzten Stand ist der Verbrauch der Viertelstunde und wird mit dem Preis genau dieser Viertelstunde bewertet (Total wie unter Einstellungen, inkl. MwSt falls aktiviert).</p>
+
+	<form method="post" action="index.php?page=stats&amp;view=setup" data-ajax="false">
+		<input type="hidden" name="action" id="stats_action" value="stats_save">
+		<div class="ui-field-contain">
+			<label for="meter_source">Quelle</label>
+			<select name="meter_source" id="meter_source">
+				<?php foreach (array('off' => 'aus (keine Statistik)', 'miniserver' => 'Miniserver abfragen', 'mqtt' => 'MQTT-Topic') as $k => $v): ?>
+					<option value="<?= $k ?>" <?= $ckwcfg['meter_source'] === $k ? 'selected' : '' ?>><?= h($v) ?></option>
+				<?php endforeach; ?>
+			</select>
+		</div>
+
+		<h4>Miniserver</h4>
+		<?= LBWeb::mslist_select_html(array('FORMID' => 'meter_msnr', 'LABEL' => 'Miniserver', 'SELECTED' => $ckwcfg['meter_msnr'], 'DATA_MINI' => 0)) ?>
+		<div class="ui-field-contain">
+			<label for="meter_name">Name des Werts</label>
+			<input type="text" name="meter_name" id="meter_name" value="<?= h($ckwcfg['meter_name']) ?>" placeholder="z. B. CKW_Zaehler">
+		</div>
+		<p class="ckw-hint">Am einfachsten: In Loxone Config einen <b>virtuellen Eingang</b> oder <b>Merker</b> mit eindeutigem Namen (z. B. <code>CKW_Zaehler</code>) an den Ausgang <b>Mrc</b> (Zählerstand Bezug) des Energiezählers bzw. Netzzähler-Bausteins hängen. Der LoxBerry-Benutzer des Miniservers braucht Leserechte darauf. Der Wert darf eine Einheit enthalten («12345.6kWh»).</p>
+
+		<h4>MQTT</h4>
+		<div class="ui-field-contain">
+			<label for="meter_topic">Topic</label>
+			<input type="text" name="meter_topic" id="meter_topic" value="<?= h($ckwcfg['meter_topic']) ?>" placeholder="z. B. loxone/zaehler_bezug">
+		</div>
+		<p class="ckw-hint">Der Zählerstand muss <b>retained</b> auf dem LoxBerry-Broker liegen, z. B. von Loxone über das MQTT-Gateway (virtueller UDP-/HTTP-Ausgang mit Präfix <code>retain</code>) oder direkt aus einem Smartmeter-Adapter.</p>
+
+		<h4>Allgemein</h4>
+		<div class="ui-field-contain">
+			<label for="meter_unit">Einheit des Zählerstands</label>
+			<select name="meter_unit" id="meter_unit">
+				<option value="kwh" <?= $ckwcfg['meter_unit'] === 'kwh' ? 'selected' : '' ?>>kWh</option>
+				<option value="wh" <?= $ckwcfg['meter_unit'] === 'wh' ? 'selected' : '' ?>>Wh</option>
+			</select>
+		</div>
+		<div class="ui-field-contain">
+			<label for="meter_max_kwh">Plausibilitätsgrenze (kWh pro Viertelstunde)</label>
+			<input type="number" step="any" min="0.1" max="10000" name="meter_max_kwh" id="meter_max_kwh" value="<?= h($ckwcfg['meter_max_kwh']) ?>">
+		</div>
+		<p class="ckw-hint">Grössere Sprünge (z. B. falscher Wert nach einem Zählertausch) werden verworfen. 50 kWh pro Viertelstunde entspricht 200 kW Dauerleistung.</p>
+
+		<button type="submit" data-inline="true" data-icon="search" onclick="document.getElementById('stats_action').value='meter_test'">Zählerstand jetzt lesen</button>
+		<button type="submit" data-inline="true" data-icon="check" onclick="document.getElementById('stats_action').value='stats_save'">Speichern</button>
+	</form>
+	<p class="ckw-hint">Speicher: Die Viertelstundenwerte sammeln sich in der RAM-Disk und werden einmal pro Stunde in <code>data/statistics.sqlite</code> geschrieben (ca. 3 MB pro Jahr, schont die SD-Karte). Massgebend für die Abrechnung bleibt die Rechnung der CKW.</p>
+
+<?php else: ?>
+<?php
+	try {
+		list($pa, $pz) = ckw_stats_period($statView, $statRef->getTimestamp());
+		$slots = ckw_stats_slots($pa, $pz);
+		$tiers = ckw_stats_tiers($slots);
+		$rows = array();
+		$chart = array('labels' => array(), 'kwh' => array(), 'price' => array(), 'fixed' => array());
+		if ($statView === 'day') {
+			$sum = ckw_stats_sum($slots);
+			foreach ($slots as $ts => $u) {
+				$chart['labels'][] = ckw_local_time($ts, 'H:i');
+				$chart['kwh'][] = $u[0] !== null ? round($u[0], 4) : null;
+				$chart['price'][] = $u[4] !== null ? round($u[4] * $pf, 5) : null;
+				$chart['fixed'][] = $u[5] !== null ? round($u[5] * $pf, 5) : null;
+				if ($u[0] !== null) {
+					$rows[] = array(ckw_local_time($ts, 'H:i') . ($u[3] ? ' *' : ''), $u[0], $u[4], $u[1], $u[2] !== null && $u[1] !== null ? $u[2] - $u[1] : null);
+				}
+			}
+			$prev = $statRef->modify('-1 day')->format('Y-m-d');
+			$next = $statRef->modify('+1 day')->format('Y-m-d');
+			$title = $dayNames[(int)$statRef->format('w')] . ', ' . $statRef->format('d.m.Y');
+			$navParam = 'd';
+		} else {
+			$b = ckw_stats_buffer_load();
+			$sum = ckw_stats_sum_range($pa, $pz, $b);
+			$step = $statView === 'month' ? '+1 day' : '+1 month';
+			$d = (new DateTimeImmutable('@' . $pa))->setTimezone($tzCh);
+			while ($d->getTimestamp() < $pz) {
+				$e = $d->modify($step);
+				$s = ckw_stats_sum_range($d->getTimestamp(), $e->getTimestamp(), $b);
+				$label = $statView === 'month' ? $dayNames[(int)$d->format('w')] . ' ' . $d->format('d.m.') : $monthNames[(int)$d->format('n')];
+				$chart['labels'][] = $label;
+				$chart['kwh'][] = round($s['kwh'], 3);
+				$chart['price'][] = $s['avg_price'] !== null ? round($s['avg_price'] * $pf, 5) : null;
+				$chart['fixed'][] = $s['kwh_fixed'] > 0 ? round($s['cost_fixed'] / $s['kwh_fixed'] * $pf, 5) : null;
+				if ($s['kwh'] > 0) {
+					$link = $statView === 'month' ? 'view=day&amp;d=' . $d->format('Y-m-d') : 'view=month&amp;m=' . $d->format('Y-m');
+					$rows[] = array('<a data-ajax="false" href="index.php?page=stats&amp;' . $link . '">' . h($label) . '</a>' . ($s['estimated'] ? ' *' : ''), $s['kwh'], $s['avg_price'], $s['cost'], $s['saving']);
+				}
+				$d = $e;
+			}
+			if ($statView === 'month') {
+				$prev = $statRef->modify('first day of previous month')->format('Y-m');
+				$next = $statRef->modify('first day of next month')->format('Y-m');
+				$title = $monthNames[(int)$statRef->format('n')] . ' ' . $statRef->format('Y');
+				$navParam = 'm';
+			} else {
+				$prev = (string)((int)$statRef->format('Y') - 1);
+				$next = (string)((int)$statRef->format('Y') + 1);
+				$title = $statRef->format('Y');
+				$navParam = 'y';
+			}
+		}
+		$statErr = null;
+	} catch (Exception $e) {
+		$statErr = $e->getMessage();
+	}
+?>
+	<?php if ($statErr !== null): ?>
+		<div class="ckw-msg ckw-err">Statistik nicht lesbar: <?= h($statErr) ?></div>
+	<?php else: ?>
+	<h3 class="ckw-section">
+		<a data-role="button" data-inline="true" data-mini="true" data-icon="arrow-l" data-iconpos="notext" data-ajax="false" href="index.php?page=stats&amp;view=<?= $statView ?>&amp;<?= $navParam ?>=<?= h($prev) ?>">zurück</a>
+		<?= h($title) ?>
+		<a data-role="button" data-inline="true" data-mini="true" data-icon="arrow-r" data-iconpos="notext" data-ajax="false" href="index.php?page=stats&amp;view=<?= $statView ?>&amp;<?= $navParam ?>=<?= h($next) ?>">weiter</a>
+	</h3>
+	<?php if ($statView === 'day'): ?>
+		<form method="get" action="index.php" data-ajax="false" style="max-width:260px">
+			<input type="hidden" name="page" value="stats"><input type="hidden" name="view" value="day">
+			<input type="date" name="d" value="<?= h($statRef->format('Y-m-d')) ?>" data-mini="true" onchange="this.form.submit()">
+		</form>
+	<?php endif; ?>
+
+	<div class="ckw-tiles">
+		<div class="ckw-tile"><span>Verbrauch</span><b><?= h($kwh($sum['kwh'])) ?> kWh</b></div>
+		<div class="ckw-tile"><span>Kosten dynamisch</span><b><?= h($chf($sum['cost'])) ?> CHF</b></div>
+		<div class="ckw-tile"><span>Ø bezahlter Preis</span><b><?= h($pr($sum['avg_price'])) ?></b><span><?= h($punit) ?></span></div>
+		<div class="ckw-tile"><span>Kosten mit Fixtarif</span><b><?= h($sum['kwh_fixed'] > 0 ? $chf($sum['cost_fixed']) . ' CHF' : '-') ?></b></div>
+		<div class="ckw-tile"><span>Ersparnis dynamisch</span><b class="<?= $sum['saving'] !== null ? ($sum['saving'] >= 0 ? 'ckw-pos' : 'ckw-neg') : '' ?>"><?= h($sum['saving'] !== null ? $chf($sum['saving']) . ' CHF' : '-') ?></b></div>
+	</div>
+	<?php if ($sum['estimated']): ?>
+		<p class="ckw-hint">* <?= h($sum['estimated']) ?> Viertelstunde(n) geschätzt: Nach einem Unterbruch wurde der Verbrauch gleichmässig auf die fehlenden Viertelstunden verteilt.</p>
+	<?php endif; ?>
+
+	<?php if (!$sum['kwh'] && !array_filter($chart['price'], function ($x) { return $x !== null; })): ?>
+		<div class="ckw-msg ckw-warn">Für diesen Zeitraum sind keine Daten vorhanden.</div>
+	<?php else: ?>
+		<div class="ckw-chart"><canvas id="ckwStatChart"></canvas></div>
+		<p class="ckw-hint"><?= $statView === 'day'
+			? 'Balken: Verbrauch pro Viertelstunde (kWh). Linie: dynamischer Preis, gestrichelt: Fixtarif (' . h($punit) . ').'
+			: 'Balken: Verbrauch (kWh). Linie: bezahlter Durchschnittspreis, gestrichelt: Fixtarif (' . h($punit) . ').' ?></p>
+		<script src="js/chart.umd.min.js"></script>
+		<script>
+		(function () {
+			var d = <?= json_encode($chart) ?>;
+			var day = <?= $statView === 'day' ? 'true' : 'false' ?>;
+			new Chart(document.getElementById('ckwStatChart'), {
+				data: {
+					labels: d.labels,
+					datasets: [
+						{ type: 'line', label: day ? 'Preis dynamisch' : 'Ø Preis', data: d.price, yAxisID: 'p', borderColor: '#1f6fb2', backgroundColor: '#1f6fb2', stepped: day, pointRadius: day ? 0 : 3, borderWidth: 2, spanGaps: false },
+						{ type: 'line', label: 'Fixtarif', data: d.fixed, yAxisID: 'p', borderColor: '#888', borderDash: [6, 4], pointRadius: 0, borderWidth: 1.5, stepped: day },
+						{ type: 'bar', label: 'Verbrauch kWh', data: d.kwh, yAxisID: 'e', backgroundColor: 'rgba(109,187,99,0.75)' }
+					]
+				},
+				options: {
+					responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
+					scales: {
+						x: { ticks: { autoSkip: true, maxTicksLimit: day ? 24 : 31 } },
+						e: { position: 'left', beginAtZero: true, title: { display: true, text: 'kWh' } },
+						p: { position: 'right', grace: '10%', grid: { drawOnChartArea: false }, title: { display: true, text: <?= json_encode($punit) ?> } }
+					}
+				}
+			});
+		})();
+		</script>
+	<?php endif; ?>
+
+	<h3 class="ckw-section">Verbrauch nach Preisstufe</h3>
+	<?php $tt = $tiers['cheap']['kwh'] + $tiers['mid']['kwh'] + $tiers['expensive']['kwh']; ?>
+	<table class="ckw-table" style="max-width:700px">
+		<tr><th>Preisstufe</th><th style="text-align:right">kWh</th><th style="text-align:right">Anteil</th><th style="text-align:right">Kosten CHF</th><th style="text-align:right">Ø <?= h($punit) ?></th></tr>
+		<?php foreach (array('cheap' => 'günstigstes Drittel des Tages', 'mid' => 'mittleres Drittel', 'expensive' => 'teuerstes Drittel', 'below_fixed' => 'unter dem Fixtarif', 'above_fixed' => 'über dem Fixtarif') as $k => $label): $t = $tiers[$k]; ?>
+			<tr<?= $k === 'below_fixed' ? ' style="border-top:2px solid #999"' : '' ?>>
+				<td><?= h($label) ?></td>
+				<td class="num"><?= h($kwh($t['kwh'])) ?></td>
+				<td class="num"><?= $tt > 0 ? h(number_format($t['kwh'] / $tt * 100, 0)) . ' %' : '-' ?></td>
+				<td class="num"><?= h($chf($t['cost'])) ?></td>
+				<td class="num"><?= h($t['kwh'] > 0 ? $pr($t['cost'] / $t['kwh']) : '-') ?></td>
+			</tr>
+		<?php endforeach; ?>
+	</table>
+	<p class="ckw-hint">Die Drittel werden für jeden Tag aus seinen eigenen Viertelstundenpreisen gebildet. Je mehr Verbrauch im günstigen Drittel, desto besser nutzt du den dynamischen Tarif.</p>
+
+	<h3 class="ckw-section"><?= $statView === 'day' ? 'Viertelstunden' : ($statView === 'month' ? 'Tage' : 'Monate') ?></h3>
+	<?php if ($rows): ?>
+	<div data-role="collapsible" data-collapsed="<?= $statView === 'day' ? 'true' : 'false' ?>" data-mini="true">
+		<h4>Tabelle (<?= count($rows) ?> Zeilen)</h4>
+		<table class="ckw-table">
+			<tr><th><?= $statView === 'day' ? 'Zeit' : 'Datum' ?></th><th style="text-align:right">kWh</th><th style="text-align:right"><?= $statView === 'day' ? 'Preis' : 'Ø Preis' ?> <?= h($punit) ?></th><th style="text-align:right">Kosten CHF</th><th style="text-align:right">Ersparnis CHF</th></tr>
+			<?php foreach ($rows as $r): ?>
+				<tr><td><?= $statView === 'day' ? h($r[0]) : $r[0] ?></td><td class="num"><?= h(number_format($r[1], 3, '.', "'")) ?></td><td class="num"><?= h($pr($r[2])) ?></td><td class="num"><?= h($r[3] === null ? '-' : number_format($r[3], 3, '.', "'")) ?></td><td class="num"><?= h($r[4] === null ? '-' : number_format($r[4], 3, '.', "'")) ?></td></tr>
+			<?php endforeach; ?>
+		</table>
+	</div>
+	<?php else: ?>
+		<p class="ckw-hint">Noch kein Verbrauch erfasst.</p>
+	<?php endif; ?>
+	<p><a data-role="button" data-inline="true" data-mini="true" data-icon="arrow-d" data-ajax="false" href="index.php?page=stats&amp;view=<?= $statView ?>&amp;<?= $navParam ?>=<?= h($statRef->format($statView === 'day' ? 'Y-m-d' : ($statView === 'month' ? 'Y-m' : 'Y'))) ?>&amp;csv=1">CSV-Export (Viertelstunden)</a></p>
+	<?php endif; ?>
 <?php endif; ?>
 
 <?php elseif ($page === 'loxone'): ?>

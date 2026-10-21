@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.0-beta.1 – 2026-10-21 (interne Beta, nicht veröffentlicht)
+- Neu: Verbrauchsstatistik mit dynamischen Preisen (eigener Reiter **Statistik**: Tag / Monat / Jahr / Einrichtung)
+  - Zählerstand Bezug vom Miniserver (virtueller Eingang/Merker) oder per MQTT (retained), alle 15 Minuten
+  - Verbrauch pro Viertelstunde bewertet mit dem Preis dieser Viertelstunde (Total wie eingestellt) und mit dem Fixtarif
+  - Tageskurve Preis + Verbrauch, Monats-/Jahressummen, Verbrauch nach Preisstufe, CSV-Export (Diagramme mit Chart.js, lokal mitgeliefert)
+  - Lücken werden gleichmässig verteilt und als geschätzt markiert, Zählertausch/Ausreisser werden verworfen
+  - Neue Ausgänge `stat_kwh_*`, `stat_cost_*`, `stat_avgprice_*`, `stat_saving_*` (today/month/year) und `stat_meter_ok`
+- SD-Karte schonen: Preis-Cache nur bei geänderten Preisen schreiben, Statusdateien in der RAM-Disk, Statistik stündlich gebündelt in SQLite (ca. 15 MB/Tag → ca. 1 MB/Tag)
+- Loxone-Vorlage: Einheit pro Wert (`<v.2>` für CHF, `<v.3>` für Preise/kWh)
+
 ## 1.1.0 – 2026-10-21
 - Fixtarif-Vergleich: Ist für das laufende Jahr kein fixer Netztarif bekannt, gehen alle `fixed_*`/`cheaper_*`-Werte auf -1 (kein Vorjahreswert), damit der Loxone-Eingang auf Fehler geht
 - Neu: Vergleich mit dem fixen (nicht dynamischen) CKW-Netztarif – `fixed_total` (Preis mit Netz E bzw. Netz LG7 bei gleichem Stromprodukt, Abgaben und MwSt), `fixed_diff` (aktuell minus Fixtarif), `cheaper_than_fixed` (0/1), `cheaper_hours` (Stunden der nächsten 24 h unter dem Fixtarif)

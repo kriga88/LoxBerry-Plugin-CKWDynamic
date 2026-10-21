@@ -3,9 +3,10 @@
  * CKW Dynamischer Tarif - Abruf der Preise und Versand an Loxone.
  * Wird per Cronjob alle 15 Minuten sowie aus der Weboberflaeche aufgerufen.
  *
- * Aufruf: php fetch.php [-v] [--uninstall]
- *   -v           Meldungen zusaetzlich auf der Konsole
- *   --uninstall  retained MQTT-Topics des Plugins loeschen (vom Deinstallationsskript)
+ * Aufruf: php fetch.php [-v] [--uninstall] [--flush-stats]
+ *   -v             Meldungen zusaetzlich auf der Konsole
+ *   --uninstall    retained MQTT-Topics des Plugins loeschen (vom Deinstallationsskript)
+ *   --flush-stats  Statistik-Puffer (RAM-Disk) sofort in die Datenbank schreiben (vor einem Update)
  * Exit-Code: 0 = ok, 1 = Fehler, 2 = es laeuft bereits ein Abruf
  */
 
@@ -29,6 +30,18 @@ $lock = fopen(ckw_data_dir() . '/fetch.lock', 'c');
 if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
 	fwrite(STDERR, "Abruf laeuft bereits.\n");
 	exit(2);
+}
+
+if (in_array('--flush-stats', $argv, true)) {
+	try {
+		ckw_stats_flush_all($buffer);
+		$rc = 0;
+	} catch (Throwable $e) {
+		fwrite(STDERR, 'Statistik nicht gesichert: ' . $e->getMessage() . "\n");
+		$rc = 1;
+	}
+	flock($lock, LOCK_UN);
+	exit($rc);
 }
 
 $ckwcfg = ckw_load_config();

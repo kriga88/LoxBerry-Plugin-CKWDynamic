@@ -18,6 +18,8 @@ define('CKW_TARIFFS_RETRY', 6 * 3600);        // nach einem Fehler fruehestens n
 define('CKW_TARIFF_CACHE_FORMAT', 2);         // erhoehen, wenn sich die Auswertung der CKW-Tarifdatei aendert
 define('CKW_TARIFFS_PAGE', getenv('CKW_TARIFFS_PAGE') ?: 'https://www.ckw.ch/energie/strom/stromprodukte/privat');   // verlinkt die maschinenlesbaren Tarifdateien (Umgebungsvariable nur fuer Tests)
 
+require_once __DIR__ . '/ckw_stats.php';
+
 // Komponente => Beschreibung (Reihenfolge = Anzeige)
 $CKW_COMPONENTS = array(
 	'total'      => 'Total (Netz + Stromprodukt + Konzessionsabgabe + Zusatzkosten)',
@@ -53,8 +55,22 @@ function ckw_data_dir()
 	return $lbpdatadir;
 }
 
+/**
+ * RAM-Disk des Plugins (LoxBerry-Logordner liegt auf tmpfs): fuer Dateien, die bei jedem Lauf neu
+ * geschrieben werden, damit die SD-Karte geschont wird. Rueckfall: Datenordner.
+ */
+function ckw_ram_dir()
+{
+	global $lbplogdir;
+	if (!empty($lbplogdir) && (is_dir($lbplogdir) || @mkdir($lbplogdir, 0775, true)) && is_writable($lbplogdir)) {
+		return $lbplogdir;
+	}
+	return ckw_data_dir();
+}
+
 function ckw_config_file()  { return ckw_config_dir() . '/ckwdynamic.json'; }
-function ckw_state_file()   { return ckw_data_dir() . '/state.json'; }
+function ckw_state_file()   { return ckw_ram_dir() . '/state.json'; }
+function ckw_fetch_status_file() { return ckw_ram_dir() . '/fetch_status.json'; }
 function ckw_cache_file()   { return ckw_data_dir() . '/api_cache.json'; }
 function ckw_tariffs_cache(){ return ckw_data_dir() . '/tariffs_cache.json'; }
 function ckw_published_file(){ return ckw_data_dir() . '/published.json'; }
@@ -88,6 +104,12 @@ function ckw_defaults()
 		'udp_msnr'         => 1,
 		'udp_port'         => 7000,
 		'udp_prefix'       => '',
+		'meter_source'     => 'off',
+		'meter_msnr'       => 1,
+		'meter_name'       => '',
+		'meter_topic'      => '',
+		'meter_unit'       => 'kwh',
+		'meter_max_kwh'    => 50,
 	);
 }
 
@@ -189,6 +211,32 @@ function ckw_sanitize_config(array $in, &$errors = null)
 	if (!preg_match('/^[A-Za-z0-9_\-]{0,20}$/', $out['udp_prefix'])) {
 		$errors[] = 'UDP-Präfix: max. 20 Zeichen, nur Buchstaben, Ziffern, _ und -.';
 		$out['udp_prefix'] = $d['udp_prefix'];
+	}
+
+	// Verbrauchsstatistik
+	$out['meter_source'] = in_array($c['meter_source'], array('off', 'miniserver', 'mqtt'), true) ? $c['meter_source'] : $d['meter_source'];
+	$out['meter_msnr'] = max(1, (int)$c['meter_msnr']);
+	$out['meter_name'] = trim((string)$c['meter_name']);
+	if (!preg_match('#^[^/\\\\\x00-\x1f]{0,60}$#u', $out['meter_name'])) {
+		$errors[] = 'Name am Miniserver: max. 60 Zeichen, ohne / und \\.';
+		$out['meter_name'] = $d['meter_name'];
+	}
+	$out['meter_topic'] = trim((string)$c['meter_topic']);
+	if ($out['meter_topic'] !== '' && !preg_match('#^[^\#+\x00-\x1f]{1,150}$#u', $out['meter_topic'])) {
+		$errors[] = 'MQTT-Topic des Zählerstands: ohne # und +.';
+		$out['meter_topic'] = $d['meter_topic'];
+	}
+	$out['meter_unit'] = in_array($c['meter_unit'], array('kwh', 'wh'), true) ? $c['meter_unit'] : $d['meter_unit'];
+	$out['meter_max_kwh'] = ckw_to_float($c['meter_max_kwh'], null);
+	if ($out['meter_max_kwh'] === null || $out['meter_max_kwh'] <= 0 || $out['meter_max_kwh'] > 10000) {
+		$errors[] = 'Plausibilitätsgrenze: 0 bis 10000 kWh pro Viertelstunde.';
+		$out['meter_max_kwh'] = $d['meter_max_kwh'];
+	}
+	if ($out['meter_source'] === 'miniserver' && $out['meter_name'] === '') {
+		$errors[] = 'Statistik: Name des Zählerstands am Miniserver fehlt.';
+	}
+	if ($out['meter_source'] === 'mqtt' && $out['meter_topic'] === '') {
+		$errors[] = 'Statistik: MQTT-Topic des Zählerstands fehlt.';
 	}
 
 	return $out;
@@ -1344,6 +1392,18 @@ function ckw_key_description($key, $unit = 'CHF/kWh')
 	if (isset($fixed[$key])) {
 		return $fixed[$key];
 	}
+	if (preg_match('/^stat_(kwh|cost|avgprice|saving)_(today|month|year)$/', $key, $m)) {
+		$p = array('today' => 'heute', 'month' => 'laufender Monat', 'year' => 'laufendes Jahr');
+		switch ($m[1]) {
+			case 'kwh':      return "Statistik {$p[$m[2]]}: Verbrauch (kWh)";
+			case 'cost':     return "Statistik {$p[$m[2]]}: Energiekosten dynamisch (CHF)";
+			case 'avgprice': return "Statistik {$p[$m[2]]}: bezahlter Durchschnittspreis ($unit, -1 = noch kein Verbrauch)";
+			case 'saving':   return "Statistik {$p[$m[2]]}: Ersparnis gegenüber Fixtarif in CHF (negativ = Mehrkosten, -1 = kein Fixtarif)";
+		}
+	}
+	if ($key === 'stat_meter_ok') {
+		return '1 = Zählerstand im letzten Lauf gelesen, 0 = Fehler';
+	}
 	if (!preg_match('/^([a-z]+)_([a-z]+?)(\d{2})?$/', $key, $m) || !isset($short[$m[1]])) {
 		return '';
 	}
@@ -1507,11 +1567,27 @@ function ckw_udp_send(array $values, array $cfg, &$error)
 	return true;
 }
 
+/** Loxone-Einheit (Nachkommastellen) eines Werts im virtuellen UDP-Eingang */
+function ckw_key_unit($key)
+{
+	if ($key === 'formula_factor') {
+		return '<v.4>';
+	}
+	if (preg_match('/^stat_(cost|saving)_/', $key)) {
+		return '<v.2>';
+	}
+	if (ckw_key_is_price($key) || preg_match('/^stat_kwh_/', $key)) {
+		return '<v.3>';
+	}
+	return '<v>';
+}
+
 /** true fuer Werte, die ein Preis sind (Einheit <v.3>), sonst ganze Zahl / Status (<v>) */
 function ckw_key_is_price($key)
 {
 	global $CKW_COMPONENTS;
-	if (in_array($key, array('cheap_avg', 'formula_offset', 'formula_i1', 'formula_check', 'fixed_total', 'fixed_diff'), true)) {
+	if (in_array($key, array('cheap_avg', 'formula_offset', 'formula_i1', 'formula_check', 'fixed_total', 'fixed_diff'), true)
+		|| preg_match('/^stat_avgprice_/', $key)) {
 		return true;
 	}
 	// nur echte Komponenten (sonst wuerde z. B. rank_now als Preis gelten)
@@ -1525,14 +1601,14 @@ function ckw_key_is_price($key)
 function ckw_udp_template_xml(array $keys, $port, $unit = 'CHF/kWh')
 {
 	$e = function ($t) { return htmlspecialchars((string)$t, ENT_XML1 | ENT_QUOTES, 'UTF-8'); };
-	$digital = array('online', 'api_ok', 'data_valid', 'below_avg');
+	$digital = array('online', 'api_ok', 'data_valid', 'below_avg', 'stat_meter_ok');
 	$x = '<?xml version="1.0" encoding="utf-8"?>' . "\r\n";
 	$x .= '<VirtualInUdp Title="CKW Dynamischer Tarif" Comment="LoxBerry-Plugin ckwdynamic" Address="" Port="' . (int)$port . '">' . "\r\n";
 	foreach ($keys as $k) {
 		$x .= "\t" . '<VirtualInUdpCmd Title="' . $e('CKW ' . $k) . '" Comment="' . $e(ckw_key_description($k, $unit)) . '" Address=""'
 			. ' Check="' . $e($k . '=\v') . '" Signed="true" Analog="' . (in_array($k, $digital, true) ? 'false' : 'true') . '"'
 			. ' SourceValLow="0" DestValLow="0" SourceValHigh="100" DestValHigh="100" DefVal="0" MinVal="-2147483647" MaxVal="2147483647"'
-			. ' Unit="' . $e($k === 'formula_factor' ? '<v.4>' : (ckw_key_is_price($k) ? '<v.3>' : '<v>')) . '"/>' . "\r\n";
+			. ' Unit="' . $e(ckw_key_unit($k)) . '"/>' . "\r\n";
 	}
 	return $x . '</VirtualInUdp>' . "\r\n";
 }
@@ -1623,9 +1699,15 @@ function ckw_run(array $cfg, $log = null, ?DateTimeImmutable $now = null)
 	$cache = ckw_read_json(ckw_cache_file());
 	$apiOk = $prices !== null;
 	if ($apiOk) {
-		$cache = array('fetched' => time(), 'tariff' => $cfg['tariff'], 'prices' => $prices);
-		ckw_write_json(ckw_cache_file(), $cache);
-		ckw_log($log, 'OK', count($prices) . ' Preis-Slots von CKW erhalten.');
+		// Preis-Cache (SD) nur schreiben, wenn sich die Preise geaendert haben - meist 1-2x pro Tag.
+		// Der Zeitpunkt des letzten erfolgreichen Abrufs liegt bei jedem Lauf in der RAM-Disk.
+		$changed = !$cache || $cache['tariff'] !== $cfg['tariff'] || md5(json_encode($cache['prices'])) !== md5(json_encode($prices));
+		if ($changed) {
+			$cache = array('fetched' => time(), 'tariff' => $cfg['tariff'], 'prices' => $prices);
+			ckw_write_json(ckw_cache_file(), $cache);
+		}
+		ckw_write_json(ckw_fetch_status_file(), array('fetched' => time(), 'tariff' => $cfg['tariff']));
+		ckw_log($log, 'OK', count($prices) . ' Preis-Slots von CKW erhalten' . ($changed ? ' (neue Preise gespeichert).' : '.'));
 	} else {
 		ckw_log($log, 'ERR', "CKW-API nicht erreichbar: $err");
 		if ($cache && $cache['tariff'] === $cfg['tariff']) {
@@ -1638,13 +1720,18 @@ function ckw_run(array $cfg, $log = null, ?DateTimeImmutable $now = null)
 	}
 
 	$lastUpdate = ($cache && $cache['tariff'] === $cfg['tariff']) ? (int)$cache['fetched'] : 0;
+	$fs = ckw_read_json(ckw_fetch_status_file());
+	if ($fs && isset($fs['fetched'], $fs['tariff']) && $fs['tariff'] === $cfg['tariff']) {
+		$lastUpdate = max($lastUpdate, (int)$fs['fetched']);   // nach Neustart leer -> Zeitpunkt aus dem Cache
+	}
 	$status = array(
 		'api_ok'       => $apiOk,
 		'last_update'  => $lastUpdate,
 		'data_age_min' => $lastUpdate ? (int)floor((time() - $lastUpdate) / 60) : -1,
 	);
 
-	$res = ckw_calculate(ckw_parse_slots($prices), $cfg, $tariffs['data'], $now);
+	$raw = ckw_parse_slots($prices);
+	$res = ckw_calculate($raw, $cfg, $tariffs['data'], $now);
 	foreach ($res['meta']['warnings'] as $w) {
 		ckw_log($log, 'WARN', $w);
 	}
@@ -1653,6 +1740,18 @@ function ckw_run(array $cfg, $log = null, ?DateTimeImmutable $now = null)
 		$ok = false;
 	}
 	$out = ckw_build_outputs($res, $cfg, $status);
+
+	// Verbrauchsstatistik - ein Fehler hier darf den Preisabruf nie stoppen
+	$statInfo = null;
+	if (ckw_stats_enabled($cfg)) {
+		try {
+			$statInfo = ckw_stats_run($cfg, ckw_stats_slot_prices($raw, $cfg, $tariffs['data']), $now->getTimestamp(), $log);
+			$out['values'] += ckw_stats_outputs($cfg, $now->getTimestamp(), $statInfo);
+		} catch (Throwable $e) {
+			$statInfo = array('meter_ok' => false, 'meter' => null, 'error' => $e->getMessage(), 'new_kwh' => 0.0);
+			ckw_log($log, 'ERR', 'Statistik: ' . $e->getMessage());
+		}
+	}
 	ckw_log($log, 'INF', 'Aktuell total: ' . $out['values']['total_now'] . ' ' . ($cfg['unit'] === 'rp' ? 'Rp.' : 'CHF') . '/kWh, Stunden mit Daten: ' . $res['hours_avail'] . '/24');
 
 	// Versand
@@ -1682,7 +1781,10 @@ function ckw_run(array $cfg, $log = null, ?DateTimeImmutable $now = null)
 				ckw_log($log, 'WARN', "Direkte MQTT-Verbindung nicht möglich ($mqttErr) - über das MQTT-Gateway gesendet.");
 			}
 			ckw_log($log, 'OK', count($msgs) . " MQTT-Topics unter $base/ publiziert ($via).");
-			ckw_write_json(ckw_published_file(), array('topics' => array_keys(array_filter($msgs, function ($p) { return $p !== ''; }))));
+			$topics = array_keys(array_filter($msgs, function ($p) { return $p !== ''; }));
+			if (!$published || !isset($published['topics']) || $published['topics'] !== $topics) {
+				ckw_write_json(ckw_published_file(), array('topics' => $topics));   // nur bei Aenderung (SD schonen)
+			}
 		} else {
 			ckw_log($log, 'ERR', "MQTT-Versand fehlgeschlagen - $mqttErr");
 			$errors['mqtt'] = $mqttErr;
@@ -1714,6 +1816,7 @@ function ckw_run(array $cfg, $log = null, ?DateTimeImmutable $now = null)
 		'errors' => $errors,
 		'tariffs_source'  => $tariffs['source'],
 		'tariffs_updated' => $tariffs['updated'],
+		'stats'  => $statInfo,
 	);
 	ckw_write_json(ckw_state_file(), $state);
 	return $ok;
