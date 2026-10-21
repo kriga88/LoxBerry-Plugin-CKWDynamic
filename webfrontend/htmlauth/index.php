@@ -128,7 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 	} elseif ($_POST['action'] === 'stats_save' || $_POST['action'] === 'meter_test') {
 		// Statistik -> Einrichtung: nur die Zaehler-Felder uebernehmen
 		$in = $ckwcfg;
-		foreach (array('meter_source', 'meter_msnr', 'meter_name', 'meter_output', 'meter_topic', 'meter_unit', 'meter_max_kwh') as $f) {
+		foreach (array('meter_source', 'meter_msnr', 'meter_name', 'meter_output', 'meter_topic', 'meter_unit', 'meter_max_kwh', 'power_rate') as $f) {
 			if (isset($_POST[$f])) {
 				$in[$f] = $_POST[$f];
 			}
@@ -600,6 +600,12 @@ $sub = array('day' => 'Tag', 'month' => 'Monat', 'year' => 'Jahr', 'setup' => 'E
 			<input type="number" step="any" min="0.1" max="10000" name="meter_max_kwh" id="meter_max_kwh" value="<?= h($ckwcfg['meter_max_kwh']) ?>">
 		</div>
 		<p class="ckw-hint">Grössere Sprünge (z. B. falscher Wert nach einem Zählertausch) werden verworfen. 50 kWh pro Viertelstunde entspricht 200 kW Dauerleistung.</p>
+		<?php list($prAuto, $prFix) = ckw_stats_power_rates(array_merge($ckwcfg, array('power_rate' => 0, 'vat_enabled' => false)), $tariffs['data'], time()); ?>
+		<div class="ui-field-contain">
+			<label for="power_rate">Leistungstarif (CHF/kW/Monat, exkl. MwSt)</label>
+			<input type="number" step="any" min="0" max="100" name="power_rate" id="power_rate" value="<?= h($ckwcfg['power_rate'] > 0 ? $ckwcfg['power_rate'] : '') ?>" placeholder="<?= h($prAuto !== null ? 'automatisch: ' . number_format($prAuto, 2) : 'unbekannt – bitte eintragen') ?>">
+		</div>
+		<p class="ckw-hint">Die CKW verrechnet zusätzlich die höchste Viertelstunden-Leistung jedes Monats (Verbrauch der stärksten Viertelstunde × 4). Leer lassen = Wert aus der Preistabelle (<?= h($ckwcfg['tariff'] === 'home_dynamic' ? 'Home dynamic' : 'Business dynamic') ?>: <?= h($prAuto !== null ? number_format($prAuto, 2) . ' CHF/kW/Monat' : 'nicht hinterlegt') ?><?= $prFix !== null ? ', Fixtarif ' . h(number_format($prFix, 2)) . ' CHF/kW/Monat' : '' ?>). Die MwSt wird wie unter Einstellungen dazugerechnet.</p>
 
 		<button type="submit" data-inline="true" data-icon="search" onclick="document.getElementById('stats_action').value='meter_test'">Zählerstand jetzt lesen</button>
 		<button type="submit" data-inline="true" data-icon="check" onclick="document.getElementById('stats_action').value='stats_save'">Speichern</button>
@@ -620,15 +626,17 @@ $sub = array('day' => 'Tag', 'month' => 'Monat', 'year' => 'Jahr', 'setup' => 'E
 		$tiers = ckw_stats_tiers($slots);
 		$rows = array();
 		$chart = array('labels' => array(), 'kwh' => array(), 'price' => array(), 'fixed' => array());
+		$pw = null;
 		if ($statView === 'day') {
 			$sum = ckw_stats_sum($slots);
+			$pk = ckw_stats_peak($pa, $pz);
 			foreach ($slots as $ts => $u) {
 				$chart['labels'][] = ckw_local_time($ts, 'H:i');
 				$chart['kwh'][] = $u[0] !== null ? round($u[0], 4) : null;
 				$chart['price'][] = $u[4] !== null ? round($u[4] * $pf, 5) : null;
 				$chart['fixed'][] = $u[5] !== null ? round($u[5] * $pf, 5) : null;
 				if ($u[0] !== null) {
-					$rows[] = array(ckw_local_time($ts, 'H:i') . ($u[3] ? ' *' : ''), $u[0], $u[4], $u[1], $u[2] !== null && $u[1] !== null ? $u[2] - $u[1] : null);
+					$rows[] = array(ckw_local_time($ts, 'H:i') . ($u[3] ? ' *' : ''), $u[0], $u[4], $u[1], $u[2] !== null && $u[1] !== null ? $u[2] - $u[1] : null, $u[0] * 4, null);
 				}
 			}
 			$prev = $statRef->modify('-1 day')->format('Y-m-d');
@@ -638,6 +646,8 @@ $sub = array('day' => 'Tag', 'month' => 'Monat', 'year' => 'Jahr', 'setup' => 'E
 		} else {
 			$b = ckw_stats_buffer_load();
 			$sum = ckw_stats_sum_range($pa, $pz, $b);
+			$pw = ckw_stats_power($ckwcfg, $tariffs['data'], $pa, $pz, $b);
+			$pk = $pw['peak_kw'] !== null ? array($pw['peak_kw'], $pw['peak_ts']) : null;
 			$step = $statView === 'month' ? '+1 day' : '+1 month';
 			$d = (new DateTimeImmutable('@' . $pa))->setTimezone($tzCh);
 			while ($d->getTimestamp() < $pz) {
@@ -650,7 +660,16 @@ $sub = array('day' => 'Tag', 'month' => 'Monat', 'year' => 'Jahr', 'setup' => 'E
 				$chart['fixed'][] = $s['kwh_fixed'] > 0 ? round($s['cost_fixed'] / $s['kwh_fixed'] * $pf, 5) : null;
 				if ($s['kwh'] > 0) {
 					$link = $statView === 'month' ? 'view=day&amp;d=' . $d->format('Y-m-d') : 'view=month&amp;m=' . $d->format('Y-m');
-					$rows[] = array('<a data-ajax="false" href="index.php?page=stats&amp;' . $link . '">' . h($label) . '</a>' . ($s['estimated'] ? ' *' : ''), $s['kwh'], $s['avg_price'], $s['cost'], $s['saving']);
+					if ($statView === 'month') {
+						$dpk = ckw_stats_peak($d->getTimestamp(), $e->getTimestamp(), $b);
+						$rowPeak = $dpk ? $dpk[0] : null;
+						$rowPower = null;
+					} else {
+						$mk = $d->format('Y-m');
+						$rowPeak = isset($pw['months'][$mk]) ? $pw['months'][$mk][0] : null;
+						$rowPower = isset($pw['months'][$mk]) ? $pw['months'][$mk][2] : null;
+					}
+					$rows[] = array('<a data-ajax="false" href="index.php?page=stats&amp;' . $link . '">' . h($label) . '</a>' . ($s['estimated'] ? ' *' : ''), $s['kwh'], $s['avg_price'], $s['cost'], $s['saving'], $rowPeak, $rowPower);
 				}
 				$d = $e;
 			}
@@ -691,8 +710,22 @@ $sub = array('day' => 'Tag', 'month' => 'Monat', 'year' => 'Jahr', 'setup' => 'E
 		<div class="ckw-tile"><span>Kosten dynamisch</span><b><?= h($chf($sum['cost'])) ?> CHF</b></div>
 		<div class="ckw-tile"><span>Ø bezahlter Preis</span><b><?= h($pr($sum['avg_price'])) ?></b><span><?= h($punit) ?></span></div>
 		<div class="ckw-tile"><span>Kosten mit Fixtarif</span><b><?= h($sum['kwh_fixed'] > 0 ? $chf($sum['cost_fixed']) . ' CHF' : '-') ?></b></div>
-		<div class="ckw-tile"><span>Ersparnis dynamisch</span><b class="<?= $sum['saving'] !== null ? ($sum['saving'] >= 0 ? 'ckw-pos' : 'ckw-neg') : '' ?>"><?= h($sum['saving'] !== null ? $chf($sum['saving']) . ' CHF' : '-') ?></b></div>
+		<?php
+			$savAll = $sum['saving'];
+			if ($pw !== null && $savAll !== null && $pw['cost'] !== null && $pw['cost_fixed'] !== null) {
+				$savAll += $pw['cost_fixed'] - $pw['cost'];
+			}
+		?>
+		<div class="ckw-tile"><span>Ersparnis dynamisch<?= $pw !== null ? ' (inkl. Leistung)' : '' ?></span><b class="<?= $savAll !== null ? ($savAll >= 0 ? 'ckw-pos' : 'ckw-neg') : '' ?>"><?= h($savAll !== null ? $chf($savAll) . ' CHF' : '-') ?></b></div>
+		<div class="ckw-tile"><span>Höchste Viertelstunde</span><b><?= $pk ? h(number_format($pk[0], 2, '.', "'")) . ' kW' : '-' ?></b><span><?= $pk ? h(($statView === 'day' ? '' : ckw_local_time($pk[1], 'd.m. ')) . ckw_local_time($pk[1], 'H:i') . '–' . ckw_local_time($pk[1] + 900, 'H:i')) : '' ?></span></div>
+		<?php if ($pw !== null): ?>
+			<div class="ckw-tile"><span>Leistungskosten<?= $statView === 'year' ? ' (Summe der Monate)' : '' ?></span><b><?= $pw['peak_kw'] === null ? '0.00 CHF' : ($pw['cost'] === null ? 'Tarif unbekannt' : h($chf($pw['cost'])) . ' CHF') ?></b></div>
+			<div class="ckw-tile"><span>Total dynamisch (Energie + Leistung)</span><b><?= $pw['peak_kw'] !== null && $pw['cost'] === null ? '-' : h($chf($sum['cost'] + ($pw['cost'] ?: 0))) . ' CHF' ?></b></div>
+		<?php endif; ?>
 	</div>
+	<?php if ($pw !== null): ?>
+		<p class="ckw-hint">Leistungstarif: Die CKW verrechnet pro Monat die höchste Viertelstunden-Leistung (Verbrauch der stärksten Viertelstunde × 4) mal Leistungspreis (dynamisch 1.00 statt 1.50 CHF/kW/Monat beim Fixtarif, einstellbar unter Einrichtung). Im laufenden Monat ist das die bisherige Spitze.</p>
+	<?php endif; ?>
 	<?php if ($sum['estimated']): ?>
 		<p class="ckw-hint">* <?= h($sum['estimated']) ?> Viertelstunde(n) geschätzt: Nach einem Unterbruch wurde der Verbrauch gleichmässig auf die fehlenden Viertelstunden verteilt.</p>
 	<?php endif; ?>
@@ -752,9 +785,9 @@ $sub = array('day' => 'Tag', 'month' => 'Monat', 'year' => 'Jahr', 'setup' => 'E
 	<div data-role="collapsible" data-collapsed="<?= $statView === 'day' ? 'true' : 'false' ?>" data-mini="true">
 		<h4>Tabelle (<?= count($rows) ?> Zeilen)</h4>
 		<table class="ckw-table">
-			<tr><th><?= $statView === 'day' ? 'Zeit' : 'Datum' ?></th><th style="text-align:right">kWh</th><th style="text-align:right"><?= $statView === 'day' ? 'Preis' : 'Ø Preis' ?> <?= h($punit) ?></th><th style="text-align:right">Kosten CHF</th><th style="text-align:right">Ersparnis CHF</th></tr>
+			<tr><th><?= $statView === 'day' ? 'Zeit' : 'Datum' ?></th><th style="text-align:right">kWh</th><th style="text-align:right"><?= $statView === 'day' ? 'Preis' : 'Ø Preis' ?> <?= h($punit) ?></th><th style="text-align:right">Kosten CHF</th><th style="text-align:right">Ersparnis CHF</th><th style="text-align:right"><?= $statView === 'day' ? 'Leistung kW' : 'Spitze kW' ?></th><?php if ($statView === 'year'): ?><th style="text-align:right">Leistung CHF</th><?php endif; ?></tr>
 			<?php foreach ($rows as $r): ?>
-				<tr><td><?= $statView === 'day' ? h($r[0]) : $r[0] ?></td><td class="num"><?= h(number_format($r[1], 3, '.', "'")) ?></td><td class="num"><?= h($pr($r[2])) ?></td><td class="num"><?= h($r[3] === null ? '-' : number_format($r[3], 3, '.', "'")) ?></td><td class="num"><?= h($r[4] === null ? '-' : number_format($r[4], 3, '.', "'")) ?></td></tr>
+				<tr><td><?= $statView === 'day' ? h($r[0]) : $r[0] ?></td><td class="num"><?= h(number_format($r[1], 3, '.', "'")) ?></td><td class="num"><?= h($pr($r[2])) ?></td><td class="num"><?= h($r[3] === null ? '-' : number_format($r[3], 3, '.', "'")) ?></td><td class="num"><?= h($r[4] === null ? '-' : number_format($r[4], 3, '.', "'")) ?></td><td class="num"><?= h($r[5] === null ? '-' : number_format($r[5], 2, '.', "'")) ?></td><?php if ($statView === 'year'): ?><td class="num"><?= h($r[6] === null ? '-' : number_format($r[6], 2, '.', "'")) ?></td><?php endif; ?></tr>
 			<?php endforeach; ?>
 		</table>
 	</div>

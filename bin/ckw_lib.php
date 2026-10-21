@@ -112,6 +112,7 @@ function ckw_defaults()
 		'meter_topic'      => '',
 		'meter_unit'       => 'kwh',
 		'meter_max_kwh'    => 50,
+		'power_rate'       => 0.0,
 		'rules'            => array(),
 	);
 }
@@ -239,6 +240,11 @@ function ckw_sanitize_config(array $in, &$errors = null)
 	if ($out['meter_max_kwh'] === null || $out['meter_max_kwh'] <= 0 || $out['meter_max_kwh'] > 10000) {
 		$errors[] = 'Plausibilitätsgrenze: 0 bis 10000 kWh pro Viertelstunde.';
 		$out['meter_max_kwh'] = $d['meter_max_kwh'];
+	}
+	$out['power_rate'] = ckw_to_float($c['power_rate'], null);
+	if ($out['power_rate'] === null || $out['power_rate'] < 0 || $out['power_rate'] > 100) {
+		$errors[] = 'Leistungstarif: 0 bis 100 CHF/kW/Monat (0 = automatisch).';
+		$out['power_rate'] = $d['power_rate'];
 	}
 	if ($out['meter_source'] === 'miniserver' && $out['meter_name'] === '') {
 		$errors[] = 'Statistik: Name des Zählerstands am Miniserver fehlt.';
@@ -1417,13 +1423,16 @@ function ckw_key_description($key, $unit = 'CHF/kWh')
 	if (isset($fixed[$key])) {
 		return $fixed[$key];
 	}
-	if (preg_match('/^stat_(kwh|cost|avgprice|saving)_(today|month|year)$/', $key, $m)) {
+	if (preg_match('/^stat_(kwh|cost|avgprice|saving|peak_kw|powercost|total)_(today|month|year)$/', $key, $m)) {
 		$p = array('today' => 'heute', 'month' => 'laufender Monat', 'year' => 'laufendes Jahr');
 		switch ($m[1]) {
+			case 'peak_kw':   return "Statistik {$p[$m[2]]}: höchste Viertelstunden-Leistung (kW, massgebend für den Leistungstarif)";
+			case 'powercost': return "Statistik {$p[$m[2]]}: Leistungskosten (Spitze je Monat × Leistungstarif, CHF; -1 = Tarif unbekannt)";
+			case 'total':     return "Statistik {$p[$m[2]]}: Kosten dynamisch total = Energie + Leistung (CHF; -1 = Leistungstarif unbekannt)";
 			case 'kwh':      return "Statistik {$p[$m[2]]}: Verbrauch (kWh)";
 			case 'cost':     return "Statistik {$p[$m[2]]}: Energiekosten dynamisch (CHF)";
 			case 'avgprice': return "Statistik {$p[$m[2]]}: bezahlter Durchschnittspreis ($unit, -1 = noch kein Verbrauch)";
-			case 'saving':   return "Statistik {$p[$m[2]]}: Ersparnis gegenüber Fixtarif in CHF (negativ = Mehrkosten, -1 = kein Fixtarif)";
+			case 'saving':   return "Statistik {$p[$m[2]]}: Ersparnis gegenüber Fixtarif in CHF" . ($m[2] === 'today' ? '' : ' inkl. Leistungstarif') . " (negativ = Mehrkosten, -1 = kein Fixtarif)";
 		}
 	}
 	if (preg_match('/^rule_([a-z0-9]+)_(on|value|value_next|next_min|next_clock|left_min|done_min|hours|cost)$/', $key, $m)) {
@@ -1612,7 +1621,7 @@ function ckw_key_unit($key)
 	if ($key === 'formula_factor') {
 		return '<v.4>';
 	}
-	if (preg_match('/^stat_(cost|saving)_/', $key) || preg_match('/^rule_[a-z0-9]+_(cost|value|value_next|hours)$/', $key)) {
+	if (preg_match('/^stat_(cost|saving|peak_kw|powercost|total)_/', $key) || preg_match('/^rule_[a-z0-9]+_(cost|value|value_next|hours)$/', $key)) {
 		return '<v.2>';
 	}
 	if (ckw_key_is_price($key) || preg_match('/^stat_kwh_/', $key)) {
@@ -1790,7 +1799,7 @@ function ckw_run(array $cfg, $log = null, ?DateTimeImmutable $now = null)
 	if (ckw_stats_enabled($cfg)) {
 		try {
 			$statInfo = ckw_stats_run($cfg, ckw_stats_slot_prices($raw, $cfg, $tariffs['data']), $now->getTimestamp(), $log);
-			$out['values'] += ckw_stats_outputs($cfg, $now->getTimestamp(), $statInfo);
+			$out['values'] += ckw_stats_outputs($cfg, $now->getTimestamp(), $statInfo, $tariffs['data']);
 		} catch (Throwable $e) {
 			$statInfo = array('meter_ok' => false, 'meter' => null, 'error' => $e->getMessage(), 'new_kwh' => 0.0);
 			ckw_log($log, 'ERR', 'Statistik: ' . $e->getMessage());

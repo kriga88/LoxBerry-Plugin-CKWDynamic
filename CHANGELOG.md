@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.0-beta.6 – 2026-10-21 (interne Beta, nicht veröffentlicht)
+- Statistik: Leistungstarif – höchste Viertelstunden-Leistung je Tag/Monat, Leistungskosten (Spitze je Monat × 1.00 CHF/kW/Monat, Fixtarif 1.50), Total Energie + Leistung; Ersparnis Monat/Jahr inkl. Leistungsdifferenz
+- Neue Ausgänge `stat_peak_kw_*`, `stat_powercost_month/_year`, `stat_total_month/_year`
+- Einrichtung: Leistungstarif übersteuerbar (Standard aus Preistabelle `<tarif>_power` / `_power_fixed`)
+
 ## 1.3.0-beta.5 – 2026-10-21 (interne Beta, nicht veröffentlicht)
 - Analogwert linear: Punkte A/B wahlweise in % Preisband ab Minimum (Standard für neue Regeln) oder als fester Preis
 - Editor: Stufen- und Linear-Felder zeigen die Einheit (%, Rp./kWh bzw. CHF/kWh) und daneben den entsprechenden Preis; Werte ausserhalb 0–100 % werden markiert

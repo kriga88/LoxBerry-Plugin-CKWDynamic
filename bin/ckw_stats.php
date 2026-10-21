@@ -516,18 +516,98 @@ function ckw_stats_tiers(array $slots)
 	return $t;
 }
 
+/** Hoechste Viertelstunde im Zeitraum (Datenbank + Puffer): array(kW, ts) oder null */
+function ckw_stats_peak($from, $to, $buffer = null)
+{
+	$st = ckw_stats_db()->prepare('SELECT ts, kwh FROM usage WHERE ts >= ? AND ts < ? ORDER BY kwh DESC, ts ASC LIMIT 1');
+	$st->execute(array($from, $to));
+	$row = $st->fetch(PDO::FETCH_NUM);
+	$best = $row ? array((float)$row[1], (int)$row[0]) : null;
+	$b = $buffer !== null ? $buffer : ckw_stats_buffer_load();
+	foreach ($b['usage'] as $ts => $u) {
+		if ($ts >= $from && $ts < $to && ($best === null || $u[0] > $best[0])) {
+			$best = array((float)$u[0], (int)$ts);
+		}
+	}
+	return ($best === null || $best[0] <= 0) ? null : array($best[0] * 4, $best[1]);   // kWh pro Viertelstunde -> kW
+}
+
+/**
+ * Leistungstarif in CHF/kW/Monat (MwSt wie eingestellt) fuer den Monat von $ts: array(dynamisch, fix).
+ * Dynamisch: eigener Wert aus den Einstellungen, sonst Preistabelle (<tarif>_power); fix: <tarif>_power_fixed.
+ * null = unbekannt.
+ */
+function ckw_stats_power_rates(array $cfg, array $tariffs, $ts)
+{
+	$ymd = (new DateTimeImmutable('@' . (int)$ts))->setTimezone(new DateTimeZone(CKW_TZ))->format('Y-m-d');
+	$vat = $cfg['vat_enabled'] ? 1 + $cfg['vat_rate'] / 100 : 1;
+	$dyn = ckw_reference($tariffs, $cfg['tariff'] . '_power', $ymd);
+	$fix = ckw_reference($tariffs, $cfg['tariff'] . '_power_fixed', $ymd);
+	return array(
+		$cfg['power_rate'] > 0 ? $cfg['power_rate'] * $vat : ($dyn ? $dyn['rp'] / 100 * $vat : null),
+		$fix ? $fix['rp'] / 100 * $vat : null,
+	);
+}
+
+/**
+ * Leistungskosten eines Zeitraums: Spitze je Kalendermonat x Leistungstarif, summiert.
+ * Rueckgabe: array('peak_kw', 'peak_ts' (hoechster Monat), 'cost', 'cost_fixed') - Kosten null, wenn Tarif unbekannt.
+ */
+function ckw_stats_power($cfg, array $tariffs, $from, $to, $buffer = null)
+{
+	$b = $buffer !== null ? $buffer : ckw_stats_buffer_load();
+	$tz = new DateTimeZone(CKW_TZ);
+	$out = array('peak_kw' => null, 'peak_ts' => null, 'cost' => 0.0, 'cost_fixed' => 0.0, 'months' => array());
+	$m = (new DateTimeImmutable('@' . (int)$from))->setTimezone($tz)->modify('first day of this month')->setTime(0, 0, 0);
+	while ($m->getTimestamp() < $to) {
+		$n = $m->modify('+1 month');
+		$pk = ckw_stats_peak(max($from, $m->getTimestamp()), min($to, $n->getTimestamp()), $b);
+		if ($pk !== null) {
+			list($rate, $rateFix) = ckw_stats_power_rates($cfg, $tariffs, $m->getTimestamp());
+			$out['cost'] = ($out['cost'] === null || $rate === null) ? null : $out['cost'] + $pk[0] * $rate;
+			$out['cost_fixed'] = ($out['cost_fixed'] === null || $rateFix === null) ? null : $out['cost_fixed'] + $pk[0] * $rateFix;
+			if ($out['peak_kw'] === null || $pk[0] > $out['peak_kw']) {
+				$out['peak_kw'] = $pk[0];
+				$out['peak_ts'] = $pk[1];
+			}
+			$out['months'][$m->format('Y-m')] = array($pk[0], $pk[1], $rate === null ? null : $pk[0] * $rate);
+		}
+		$m = $n;
+	}
+	if ($out['peak_kw'] === null) {
+		$out['cost'] = $out['cost_fixed'] = null;
+	}
+	return $out;
+}
+
 /** Ausgaenge nach Loxone: heute, Monat, Jahr */
-function ckw_stats_outputs(array $cfg, $nowTs, array $info)
+function ckw_stats_outputs(array $cfg, $nowTs, array $info, array $tariffs = array())
 {
 	$v = array();
 	$b = ckw_stats_buffer_load();
+	$n2 = function ($x) { return $x === null ? '-1' : number_format($x, 2, '.', ''); };
 	foreach (array('today' => 'day', 'month' => 'month', 'year' => 'year') as $suffix => $type) {
 		list($a, $z) = ckw_stats_period($type, $nowTs);
 		$s = ckw_stats_sum_range($a, $z, $b);
 		$v["stat_kwh_$suffix"]      = number_format($s['kwh'], 3, '.', '');
 		$v["stat_cost_$suffix"]     = number_format($s['cost'], 2, '.', '');
 		$v["stat_avgprice_$suffix"] = $s['avg_price'] !== null ? ckw_fmt($cfg['unit'] === 'rp' ? $s['avg_price'] * 100 : $s['avg_price'], $cfg) : '-1';
-		$v["stat_saving_$suffix"]   = $s['saving'] !== null ? number_format($s['saving'], 2, '.', '') : '-1';
+		if ($type === 'day') {
+			$pk = ckw_stats_peak($a, $z, $b);
+			$v["stat_peak_kw_$suffix"] = $pk === null ? '0.00' : $n2($pk[0]);
+			$v["stat_saving_$suffix"]  = $n2($s['saving']);
+			continue;
+		}
+		// Monat/Jahr: Leistungstarif (Spitze je Monat) dazurechnen
+		$pw = ckw_stats_power($cfg, $tariffs, $a, $z, $b);
+		$v["stat_peak_kw_$suffix"]   = $pw['peak_kw'] === null ? '0.00' : $n2($pw['peak_kw']);
+		$v["stat_powercost_$suffix"] = $pw['peak_kw'] === null ? '0.00' : $n2($pw['cost']);
+		$v["stat_total_$suffix"]     = $pw['peak_kw'] === null ? $n2($s['cost']) : ($pw['cost'] === null ? '-1' : $n2($s['cost'] + $pw['cost']));
+		$saving = $s['saving'];
+		if ($saving !== null && $pw['cost'] !== null && $pw['cost_fixed'] !== null) {
+			$saving += $pw['cost_fixed'] - $pw['cost'];
+		}
+		$v["stat_saving_$suffix"] = $n2($saving);
 	}
 	$v['stat_meter_ok'] = $info['meter_ok'] ? '1' : '0';
 	return $v;
