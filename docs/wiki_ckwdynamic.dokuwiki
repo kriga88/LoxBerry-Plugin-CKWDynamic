@@ -188,6 +188,8 @@ Der Loxone Spotpreis-Optimierer lässt sich nur wenig einstellen. Im Reiter **Re
   * **Sperrzeit:** Ein in den teuersten 20 % der Viertelstunden
   * **Boiler:** günstigste 3 h
 
+Bestehende Regeln lassen sich in der Liste **kopieren**; die Kopie erhält alle Einstellungen und einen eigenen Kurznamen.
+
 In Loxone den Eingang direkt an das Gerät hängen. Handbetrieb, Frostschutz usw. regelst du weiterhin in Loxone.
 
 ===== Jährlich wechselnde Preise =====

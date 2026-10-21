@@ -85,8 +85,15 @@ $ruleIdx = isset($_GET['idx']) && ctype_digit((string)$_GET['idx']) && isset($ck
 $ruleEdit = null;
 if ($ruleView === 'edit') {
 	$tpls = ckw_rule_templates();
+	$copyIdx = isset($_GET['copy']) && ctype_digit((string)$_GET['copy']) && isset($ckwcfg['rules'][(int)$_GET['copy']]) ? (int)$_GET['copy'] : null;
 	if ($ruleIdx !== null) {
 		$ruleEdit = $ckwcfg['rules'][$ruleIdx];
+	} elseif ($copyIdx !== null) {
+		// Kopie als neue Regel: eigener Name und neuer Kurzname (sonst gleiche Loxone-Schluessel)
+		$ruleEdit = $ckwcfg['rules'][$copyIdx];
+		$base = function_exists('mb_substr') ? mb_substr($ruleEdit['name'], 0, 32) : substr($ruleEdit['name'], 0, 32);
+		$ruleEdit['name'] = $base . ' (Kopie)';
+		$ruleEdit['key'] = '';
 	} else {
 		$tk = isset($_GET['tpl']) && isset($tpls[$_GET['tpl']]) ? $_GET['tpl'] : 'leer';
 		$tmpErr = array();
@@ -786,6 +793,9 @@ global $CKW_RULE_STEP_MODES;
 					<td class="num"><?= $rs ? h(sprintf('%d:%02d h', intdiv($rs['left_min'], 60), $rs['left_min'] % 60)) : '-' ?></td>
 					<td style="white-space:nowrap">
 						<a data-role="button" data-inline="true" data-mini="true" data-icon="edit" data-iconpos="notext" data-ajax="false" href="index.php?page=rules&amp;view=edit&amp;idx=<?= $i ?>">Bearbeiten</a>
+						<?php if (count($ckwcfg['rules']) < CKW_RULES_MAX): ?>
+							<a data-role="button" data-inline="true" data-mini="true" data-icon="plus" data-iconpos="notext" data-ajax="false" title="Kopieren" href="index.php?page=rules&amp;view=edit&amp;copy=<?= $i ?>">Kopieren</a>
+						<?php endif; ?>
 						<form method="post" action="index.php?page=rules" data-ajax="false" style="display:inline">
 							<input type="hidden" name="action" value="rule_toggle"><input type="hidden" name="idx" value="<?= $i ?>">
 							<button type="submit" data-inline="true" data-mini="true" data-icon="<?= $r['enabled'] ? 'minus' : 'plus' ?>" data-iconpos="notext"><?= $r['enabled'] ? 'Deaktivieren' : 'Aktivieren' ?></button>
@@ -832,7 +842,11 @@ global $CKW_RULE_STEP_MODES;
 		$compOpts[$k] = $k;
 	}
 ?>
-	<h3 class="ckw-section"><?= $ruleIdx === null ? 'Neue Regel' : 'Regel bearbeiten' ?></h3>
+	<h3 class="ckw-section"><?php $isCopy = $ruleIdx === null && isset($copyIdx) && $copyIdx !== null; ?>
+	<?= $ruleIdx !== null ? 'Regel bearbeiten' : ($isCopy ? 'Regel kopieren' : 'Neue Regel') ?></h3>
+	<?php if ($isCopy): ?>
+		<p class="ckw-hint">Kopie von „<?= h($ckwcfg['rules'][$copyIdx]['name']) ?>“ – erst mit Speichern angelegt. Name und Kurzname anpassen; der Kurzname wird sonst automatisch aus dem Namen gebildet und eindeutig gemacht.</p>
+	<?php endif; ?>
 	<form method="post" action="index.php?page=rules" data-ajax="false" id="ruleForm">
 		<input type="hidden" name="action" value="rule_save">
 		<input type="hidden" name="idx" value="<?= $ruleIdx === null ? '' : (int)$ruleIdx ?>">

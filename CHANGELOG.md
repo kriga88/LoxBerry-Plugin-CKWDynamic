@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.3.0-beta.3 – 2026-10-21 (interne Beta, nicht veröffentlicht)
+- Schaltregeln kopieren: Knopf in der Regelliste öffnet den Editor mit allen Einstellungen als neue Regel („… (Kopie)“, eigener Kurzname)
+
 ## 1.3.0-beta.2 – 2026-10-21 (interne Beta, nicht veröffentlicht)
 - Schaltregeln: neue, eindeutige Grenzarten mit Regler und Live-Preis – fester Preis (nur im CKW-Preisband), % Preisband ab Minimum bzw. ab Maximum (Band laut CKW 0.1–32 Rp./kWh Netznutzung, aufs Total umgerechnet), Anteil der Viertelstunden, Fixtarif ±. Entfallen: „% zum Mittel“ und „Drittel“ (bestehende Regeln werden automatisch umgestellt)
 - Analogwert-Stufen als „Preis von–bis → Wert“ mit Prüfung (von < bis, Bereich, Hinweis bei Lücke/Überlappung)
