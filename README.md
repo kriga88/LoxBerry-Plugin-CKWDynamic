@@ -45,7 +45,7 @@ Release bauen:
 ./build.sh
 ```
 
-Danach `release.cfg` (VERSION, ARCHIVEURL) anpassen, taggen (`v1.0.0`) und GitHub-Release erstellen.
+Danach `release.cfg` (VERSION, ARCHIVEURL) anpassen, taggen (`v1.1.0`) und GitHub-Release erstellen.
 
 ## Lizenz
 

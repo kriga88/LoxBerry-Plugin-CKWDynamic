@@ -1,11 +1,11 @@
 ====== CKW Dynamischer Tarif ======
-/* Plugin-Daten (Wiki-Formular): Autor Christian Stutz | Beschreibung: Nur Schweiz (CKW-Netzgebiet Zentralschweiz): holt alle 15 Minuten die dynamischen Strompreise der CKW (Netz Home/Business dynamic) und sendet sie per MQTT oder UDP an Loxone - passend für den Spotpreis-Optimierer | Logo :plugins:ckwdynamic:logo.png | Status Stabil/Release | Version 1.0.0 | Min. LB 3.0 | Release Download https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v1.0.0.zip | Pre-Release Download leer | Sprachen Deutsch | Diskussion https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/issues */
+/* Plugin-Daten (Wiki-Formular): Autor Christian Stutz | Beschreibung: Nur Schweiz (CKW-Netzgebiet Zentralschweiz): holt alle 15 Minuten die dynamischen Strompreise der CKW (Netz Home/Business dynamic) und sendet sie per MQTT oder UDP an Loxone - passend für den Spotpreis-Optimierer | Logo :plugins:ckwdynamic:logo.png | Status Stabil/Release | Version 1.1.0 | Min. LB 3.0 | Release Download https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v1.1.0.zip | Pre-Release Download leer | Sprachen Deutsch | Diskussion https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/issues */
 
 Quellcode: [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic|GitHub]]
 
 ++++ Versionshistorie |
 
-  * **1.1.0-beta.2** (2026-10, Beta) - Vergleich mit dem Fixtarif (ohne Wert für das laufende Jahr: -1): ''fixed_total'', ''fixed_diff'', ''cheaper_than_fixed'', ''cheaper_hours''
+  * **1.1.0** (2026-10) - Vergleich mit dem Fixtarif: ''fixed_total'', ''fixed_diff'', ''cheaper_than_fixed'', ''cheaper_hours''
   * **1.0.0** (2026-10) - Erstes reguläres Release: Korrekturwerte für den Spotmarkt-Modus „CKW“ des Spotpreis-Optimierers
   * **0.1.6** (2026-10) - Neue Ausgänge ''<c>_ref'' und ''gridusage_ref'' (CKW-Standard-Durchschnittspreis)
   * **0.1.5** (2026-10) - Log bei Stufe „Fehler“ nur noch mit Fehlern, robuster bei CKW-Störungen, Deinstallation entfernt MQTT-Werte
@@ -43,7 +43,7 @@ Das Plugin ist ein privates Community-Projekt und steht in keiner Verbindung zur
 
 Das Plugin-ZIP gibt es bei den [[https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/releases|GitHub Releases]]. In der LoxBerry-Pluginverwaltung kann der Link zum ZIP direkt eingefügt werden, z. B. für die aktuelle Version:
 
-''https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v1.0.0.zip''
+''https://github.com/kriga88/LoxBerry-Plugin-CKWDynamic/archive/refs/tags/v1.1.0.zip''
 
 ===== Installation =====
 
@@ -110,7 +110,7 @@ Automatische Updates können in der Plugin-Verwaltung aktiviert werden.
 
 Nicht enthalten sind Leistungstarif (CHF/kW/Monat), Messentgelt und Grundgebühren, da diese nicht pro kWh anfallen.
 
-===== Vergleich mit dem Fixtarif (ab 1.1.0, Beta) =====
+===== Vergleich mit dem Fixtarif (ab 1.1.0) =====
 
 Das Plugin rechnet zusätzlich den Preis, den du mit dem **fixen (nicht dynamischen) CKW-Netztarif** bezahlen würdest – bei gleichem Stromprodukt, gleicher Konzessionsabgabe, gleichen Zusatzkosten und gleicher MwSt-Einstellung. Damit siehst du in Loxone, ob du gerade günstiger oder teurer bist als mit dem Fixtarif.
 
@@ -208,7 +208,7 @@ Wer lieber die Betriebsart **Absolut** nutzt, aktiviert in den Einstellungen „
 | ''gridusage_ref'' | Von CKW kommunizierter Standard-Durchschnittspreis der dynamischen Netznutzung (Home dynamic 6.65, Business dynamic 5.30 Rp./kWh exkl. MwSt), immer gesendet |
 | ''formula_factor'' / ''formula_offset'' | Parameter I2 / I3 für die Preisberechnung ''I1*I2+I3'' im Spotmarkt-Modus „CKW“ (nur wenn aktiviert) |
 | ''formula_i1'' / ''formula_check'' | Erwarteter CKW-Preis I1 bzw. Kontrolle ''I1*I2+I3'' (= ''total_now'') |
-| ''fixed_total'' | Preis mit dem fixen CKW-Netztarif (Netz E bzw. Netz LG7) bei gleichem Stromprodukt, Abgaben und MwSt – Referenz (ab 1.1.0, Beta) |
+| ''fixed_total'' | Preis mit dem fixen CKW-Netztarif (Netz E bzw. Netz LG7) bei gleichem Stromprodukt, Abgaben und MwSt – Referenz (ab 1.1.0) |
 | ''fixed_diff'' | Aktueller Preis minus Fixtarif-Preis: negativ = dynamisch günstiger |
 | ''cheaper_than_fixed'' / ''cheaper_hours'' | 1 = aktuelle Viertelstunde günstiger als der Fixtarif / Anzahl der nächsten 24 Stunden unter dem Fixtarif |
 | ''cheap_start_off'' | Start des günstigsten Zeitfensters in Stunden ab jetzt (-1 = nicht genug Daten) |
