@@ -137,7 +137,7 @@ Reiter **Statistik → Einrichtung**, Quelle wählen:
   * **Tag:** Preiskurve (Viertelstunden) überlagert mit dem Verbrauch, Fixtarif als Linie, Tabelle aller Viertelstunden.
   * **Monat / Jahr:** Verbrauch, Kosten, bezahlter Durchschnittspreis und Ersparnis pro Tag bzw. Monat.
   * **Verbrauch nach Preisstufe:** günstigstes / mittleres / teuerstes Drittel jedes Tages sowie unter / über dem Fixtarif.
-  * **Leistungstarif:** Die CKW verrechnet pro Monat die höchste Viertelstunden-Leistung (Verbrauch der stärksten Viertelstunde × 4) zum Leistungspreis – dynamisch 1.00 CHF/kW/Monat, Fixtarif 1.50 CHF/kW/Monat (exkl. MwSt). Das Plugin zeigt die Spitze pro Tag/Monat, die Leistungskosten, das Total (Energie + Leistung) und rechnet die Leistungsdifferenz in die Ersparnis ein. Der Preis lässt sich unter Einrichtung übersteuern (für Business dynamic ist noch kein Wert hinterlegt).
+  * **Leistungstarif:** Die CKW verrechnet pro Monat die höchste Viertelstunden-Leistung (Verbrauch der stärksten Viertelstunde × 4) zum Leistungspreis (exkl. MwSt): Home dynamic 1.00 CHF/kW/Monat (Fixtarif Netz E 1.50), Business dynamic 6.00 CHF/kW/Monat (Fixtarif Netz LG7 8.00, Werte ab 2027). Das Plugin zeigt die Spitze pro Tag/Monat, die Leistungskosten, das Total (Energie + Leistung) und rechnet die Leistungsdifferenz in die Ersparnis ein. Der Preis lässt sich unter Einrichtung übersteuern (z. B. für Business dynamic 2026, dort ist kein Wert hinterlegt).
   * **CSV-Export** der Viertelstunden (Excel-tauglich).
   * Kennzahlen als Loxone-Ausgänge (''stat_*'', siehe Alle Werte).
 

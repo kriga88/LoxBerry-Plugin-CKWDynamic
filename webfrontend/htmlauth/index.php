@@ -724,7 +724,7 @@ $sub = array('day' => 'Tag', 'month' => 'Monat', 'year' => 'Jahr', 'setup' => 'E
 		<?php endif; ?>
 	</div>
 	<?php if ($pw !== null): ?>
-		<p class="ckw-hint">Leistungstarif: Die CKW verrechnet pro Monat die höchste Viertelstunden-Leistung (Verbrauch der stärksten Viertelstunde × 4) mal Leistungspreis (dynamisch 1.00 statt 1.50 CHF/kW/Monat beim Fixtarif, einstellbar unter Einrichtung). Im laufenden Monat ist das die bisherige Spitze.</p>
+		<p class="ckw-hint">Leistungstarif: Die CKW verrechnet pro Monat die höchste Viertelstunden-Leistung (Verbrauch der stärksten Viertelstunde × 4) mal Leistungspreis (Home dynamic 1.00 statt 1.50, Business dynamic 6.00 statt 8.00 CHF/kW/Monat beim Fixtarif; einstellbar unter Einrichtung). Im laufenden Monat ist das die bisherige Spitze.</p>
 	<?php endif; ?>
 	<?php if ($sum['estimated']): ?>
 		<p class="ckw-hint">* <?= h($sum['estimated']) ?> Viertelstunde(n) geschätzt: Nach einem Unterbruch wurde der Verbrauch gleichmässig auf die fehlenden Viertelstunden verteilt.</p>

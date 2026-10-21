@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.0-beta.7 – 2026-10-21 (interne Beta, nicht veröffentlicht)
+- Leistungstarif laut CKW-Preisblättern 2027: Business dynamic 6.00 CHF/kW/Monat (Vergleich Netz LG7 8.00), Home dynamic 1.00 (Netz E 1.50), exkl. MwSt
+- Preistabelle: Leistungspreise (Rp./kW/Monat) bis 5000 zulässig
+
 ## 1.3.0-beta.6 – 2026-10-21 (interne Beta, nicht veröffentlicht)
 - Statistik: Leistungstarif – höchste Viertelstunden-Leistung je Tag/Monat, Leistungskosten (Spitze je Monat × 1.00 CHF/kW/Monat, Fixtarif 1.50), Total Energie + Leistung; Ersparnis Monat/Jahr inkl. Leistungsdifferenz
 - Neue Ausgänge `stat_peak_kw_*`, `stat_powercost_month/_year`, `stat_total_month/_year`

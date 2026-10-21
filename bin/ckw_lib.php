@@ -563,14 +563,23 @@ function ckw_load_ckw_tariffs($allowNetwork, $log = null)
 	return ($cache && !empty($cache['data']['products'])) ? array('data' => $cache['data'], 'updated' => $cache['updated']) : null;
 }
 
-/** Ein Preiseintrag ist nur gueltig mit Datum und numerischem Preis (Schutz vor fehlerhaften Remote-Daten) */
-function ckw_entry_valid($e)
+/**
+ * Ein Preiseintrag ist nur gueltig mit Datum und numerischem Preis (Schutz vor fehlerhaften Remote-Daten).
+ * $max: Obergrenze (Rp./kWh 200; Leistungspreise in Rp./kW/Monat bis 5000)
+ */
+function ckw_entry_valid($e, $max = 200)
 {
 	return is_array($e)
 		&& isset($e['valid_from'], $e['rp_kwh'])
 		&& is_string($e['valid_from']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $e['valid_from'])
-		&& is_numeric($e['rp_kwh']) && $e['rp_kwh'] >= -100 && $e['rp_kwh'] <= 200
+		&& is_numeric($e['rp_kwh']) && $e['rp_kwh'] >= -100 && $e['rp_kwh'] <= $max
 		&& (!isset($e['percent']) || (is_numeric($e['percent']) && $e['percent'] >= 0 && $e['percent'] <= 100));
+}
+
+/** Obergrenze fuer Eintraege eines Schluessels (Leistungspreise <tarif>_power[_fixed] in Rp./kW/Monat) */
+function ckw_entry_max($key)
+{
+	return preg_match('/_power(_fixed)?$/', (string)$key) ? 5000 : 200;
 }
 
 /** Fuehrt zwei Tabellen zusammen; Eintraege von $b ersetzen solche von $a mit gleichem Gueltig-ab-Datum. */
@@ -591,7 +600,7 @@ function ckw_merge_tariffs(array $a, array $b)
 			}
 			$byDate = array();
 			foreach (array_merge($old, $newPrices) as $e) {
-				if (ckw_entry_valid($e)) {
+				if (ckw_entry_valid($e, ckw_entry_max($key))) {
 					$byDate[$e['valid_from']] = $e;
 				}
 			}
@@ -671,11 +680,11 @@ function ckw_load_tariffs($remote, $log = null, $allowNetwork = true)
 }
 
 /** Gueltiger Eintrag einer Preisliste fuer ein Datum (spaetestes valid_from <= Datum) */
-function ckw_entry_for_date(array $entries, $ymd)
+function ckw_entry_for_date(array $entries, $ymd, $max = 200)
 {
 	$best = null;
 	foreach ($entries as $e) {
-		if (!ckw_entry_valid($e)) {
+		if (!ckw_entry_valid($e, $max)) {
 			continue;
 		}
 		if ($e['valid_from'] <= $ymd && ($best === null || $e['valid_from'] > $best['valid_from'])) {
@@ -697,7 +706,7 @@ function ckw_entry_for_date(array $entries, $ymd)
 /** Referenzwert aus dynamic_reference (z. B. CKW-Durchschnittspreis) in Rp./kWh fuer ein Datum */
 function ckw_reference(array $tariffs, $key, $ymd)
 {
-	return isset($tariffs['dynamic_reference'][$key]) ? ckw_entry_for_date($tariffs['dynamic_reference'][$key], $ymd) : null;
+	return isset($tariffs['dynamic_reference'][$key]) ? ckw_entry_for_date($tariffs['dynamic_reference'][$key], $ymd, ckw_entry_max($key)) : null;
 }
 
 /**
