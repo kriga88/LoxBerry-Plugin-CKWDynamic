@@ -176,7 +176,7 @@ Der Loxone Spotpreis-Optimierer lässt sich nur wenig einstellen. Im Reiter **Re
     * //linear//: Preis A → Wert X, Preis B → Wert Y, dazwischen gleitend
     * dazu ein Wert für „Regel aus“ und eine Haltezeit gegen Springen
   * **Ohne aktuelle Preise:** nach Plan, Aus oder Ein.
-  * **Leistung** (optional): Damit schätzt das Plugin die Kosten der geplanten Ein-Zeit.
+  * **Leistung** (optional): Damit schätzt das Plugin die Kosten im Zeitfenster (gelaufene + geplante Viertelstunden). Auf das Schalten hat sie keinen Einfluss.
   * Eine **Vorschau** zeigt beim Bearbeiten Preis, Ein-Zeiten, Grenze und Analogwert für das aktuelle und das nächste Zeitfenster.
 
 ==== Vorlagen ====
@@ -292,8 +292,9 @@ Wer lieber die Betriebsart **Absolut** nutzt, aktiviert in den Einstellungen „
 | ''rule_<k>_on'' | Schaltregel: 1 = Ein, 0 = Aus (ab 1.3.0, ''<k>'' = Kurzname der Regel) |
 | ''rule_<k>_value'' / ''rule_<k>_value_next'' | Analogwert jetzt / in einer Stunde (nur wenn eingestellt) |
 | ''rule_<k>_next_min'' / ''rule_<k>_next_clock'' | Minuten bis zum nächsten Ein (0 = jetzt) / Uhrzeit als HHMM (z. B. 1830), -1 = keiner geplant |
-| ''rule_<k>_left_min'' / ''rule_<k>_done_min'' | Geplante / bereits gelaufene Ein-Zeit im Zeitfenster (Minuten) |
-| ''rule_<k>_cost'' | Geschätzte Kosten der geplanten Ein-Zeit (CHF, nur mit Leistung) |
+| ''rule_<k>_left_min'' / ''rule_<k>_done_min'' | Noch geplante / bereits gelaufene Ein-Zeit im Zeitfenster (Minuten) |
+| ''rule_<k>_hours'' | Geschätzte Ein-Zeit im ganzen Zeitfenster in Stunden (gelaufen + geplant) |
+| ''rule_<k>_cost'' | Geschätzte Kosten im ganzen Zeitfenster in CHF (gelaufen + geplant, nur mit Leistung) |
 | ''cheap_start_off'' | Start des günstigsten Zeitfensters in Stunden ab jetzt (-1 = nicht genug Daten) |
 | ''cheap_start_clock'' | Start des günstigsten Zeitfensters als Uhrzeit (Stunde) |
 | ''cheap_avg'' | Durchschnittspreis im günstigsten Zeitfenster |

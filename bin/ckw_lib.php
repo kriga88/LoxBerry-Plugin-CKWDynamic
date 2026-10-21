@@ -1426,7 +1426,7 @@ function ckw_key_description($key, $unit = 'CHF/kWh')
 			case 'saving':   return "Statistik {$p[$m[2]]}: Ersparnis gegenüber Fixtarif in CHF (negativ = Mehrkosten, -1 = kein Fixtarif)";
 		}
 	}
-	if (preg_match('/^rule_([a-z0-9]+)_(on|value|value_next|next_min|next_clock|left_min|done_min|cost)$/', $key, $m)) {
+	if (preg_match('/^rule_([a-z0-9]+)_(on|value|value_next|next_min|next_clock|left_min|done_min|hours|cost)$/', $key, $m)) {
 		$n = "Regel {$m[1]}";
 		switch ($m[2]) {
 			case 'on':         return "$n: 1 = Ein, 0 = Aus";
@@ -1436,7 +1436,8 @@ function ckw_key_description($key, $unit = 'CHF/kWh')
 			case 'next_clock': return "$n: Uhrzeit des nächsten Ein als HHMM, z. B. 1830 (-1 = keiner geplant)";
 			case 'left_min':   return "$n: geplante Ein-Zeit bis zum Ende des Zeitfensters (Minuten)";
 			case 'done_min':   return "$n: bereits gelaufene Ein-Zeit im aktuellen Zeitfenster (Minuten)";
-			case 'cost':       return "$n: geschätzte Kosten der geplanten Ein-Zeit im Zeitfenster (CHF)";
+			case 'hours':      return "$n: geschätzte Ein-Zeit im Zeitfenster in Stunden (gelaufen + geplant)";
+			case 'cost':       return "$n: geschätzte Kosten im Zeitfenster in CHF (gelaufen + geplant)";
 		}
 	}
 	if ($key === 'stat_meter_ok') {
@@ -1611,7 +1612,7 @@ function ckw_key_unit($key)
 	if ($key === 'formula_factor') {
 		return '<v.4>';
 	}
-	if (preg_match('/^stat_(cost|saving)_/', $key) || preg_match('/^rule_[a-z0-9]+_(cost|value|value_next)$/', $key)) {
+	if (preg_match('/^stat_(cost|saving)_/', $key) || preg_match('/^rule_[a-z0-9]+_(cost|value|value_next|hours)$/', $key)) {
 		return '<v.2>';
 	}
 	if (ckw_key_is_price($key) || preg_match('/^stat_kwh_/', $key)) {

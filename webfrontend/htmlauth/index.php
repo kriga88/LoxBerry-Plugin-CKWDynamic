@@ -782,7 +782,7 @@ global $CKW_RULE_STEP_MODES;
 		<div class="ckw-msg ckw-warn">Noch keine Regeln angelegt. Starte mit einer Vorlage:</div>
 	<?php else: ?>
 		<table class="ckw-table">
-			<tr><th>Regel</th><th>Typ</th><th>Zeitfenster</th><th>Jetzt</th><th>Nächstes Ein</th><th style="text-align:right">Rest geplant</th><th></th></tr>
+			<tr><th>Regel</th><th>Typ</th><th>Zeitfenster</th><th>Jetzt</th><th>Nächstes Ein</th><th style="text-align:right">Ein-Zeit im Fenster</th><th style="text-align:right">Kosten</th><th></th></tr>
 			<?php foreach ($ckwcfg['rules'] as $i => $r): $rs = isset($ruleState[$r['key']]) ? $ruleState[$r['key']] : null; ?>
 				<tr<?= $r['enabled'] ? '' : ' style="opacity:0.5"' ?>>
 					<td><b><?= h($r['name']) ?></b><br><code>rule_<?= h($r['key']) ?>_on</code></td>
@@ -790,7 +790,8 @@ global $CKW_RULE_STEP_MODES;
 					<td><?= $r['win_from'] === $r['win_to'] ? 'ganzer Tag' : h($r['win_from'] . '–' . $r['win_to']) ?></td>
 					<td><?php if (!$r['enabled']): ?>inaktiv<?php elseif ($rs): ?><span class="ckw-status" style="background:<?= $rs['on'] ? '#3cb043' : '#bbb' ?>"></span><?= $rs['on'] ? 'Ein' : 'Aus' ?><?= $rs['value'] !== null ? ' · ' . h(rtrim(rtrim(number_format($rs['value'], 2, '.', ''), '0'), '.')) : '' ?><?php else: ?>-<?php endif; ?></td>
 					<td><?= $rs && $rs['next'] ? h(ckw_rule_day_label($rs['next']) . ckw_local_time($rs['next'], ' H:i')) : '-' ?></td>
-					<td class="num"><?= $rs ? h(sprintf('%d:%02d h', intdiv($rs['left_min'], 60), $rs['left_min'] % 60)) : '-' ?></td>
+					<td class="num"><?php if ($rs): $tm = $rs['left_min'] + $rs['done_min']; ?><?= h(sprintf('%d:%02d h', intdiv($tm, 60), $tm % 60)) ?><?= $rs['done_min'] ? '<br><span class="ckw-hint">' . h(sprintf('noch %d:%02d h', intdiv($rs['left_min'], 60), $rs['left_min'] % 60)) . '</span>' : '' ?><?php else: ?>-<?php endif; ?></td>
+					<td class="num"><?= $rs && isset($rs['cost_chf']) && $rs['cost_chf'] !== null ? h(number_format($rs['cost_chf'], 2, '.', "'")) . ' CHF' : '-' ?></td>
 					<td style="white-space:nowrap">
 						<a data-role="button" data-inline="true" data-mini="true" data-icon="edit" data-iconpos="notext" data-ajax="false" href="index.php?page=rules&amp;view=edit&amp;idx=<?= $i ?>">Bearbeiten</a>
 						<?php if (count($ckwcfg['rules']) < CKW_RULES_MAX): ?>
@@ -935,7 +936,7 @@ global $CKW_RULE_STEP_MODES;
 		<div class="ui-field-contain"><label for="r_nodata">Ohne aktuelle CKW-Preise</label><?= $sel('nodata', $r['nodata'], array('plan' => 'nach Plan (CKW-Durchschnittspreis)', 'off' => 'Aus', 'on' => 'Ein')) ?></div>
 		<p class="ckw-hint">Gilt nur, wenn für die <b>laufende</b> Viertelstunde kein echter CKW-Preis vorliegt (längere Störung, auch der letzte Abruf hat keinen Preis für jetzt). <b>Nach Plan:</b> weiter nach dem mit dem CKW-Durchschnittspreis gerechneten Plan. <b>Aus/Ein:</b> Ausgang fest aus bzw. ein (z. B. Auto: Aus, Wärmepumpe: Ein). Fehlende Preise für morgen vor ca. 12 Uhr sind davon nicht betroffen – dafür wird immer mit dem Durchschnittspreis geplant.</p>
 		<div class="ui-field-contain"><label for="r_power_kw">Leistung des Geräts (kW, optional)</label><?= $inp('power_kw', $r['power_kw'], 'number', 'step="any" min="0"') ?></div>
-		<p class="ckw-hint">Nur für die Kostenschätzung, beeinflusst das Schalten nicht: Leistung × ¼ h × Preis jeder geplanten Viertelstunde im aktuellen Fenster, als <code>rule_…_cost</code> (CHF) und in der Vorschau. Beispiel: 11 kW, 4 h zu 20 Rp. = 8.80 CHF. Bei 0 wird kein Kostenwert gesendet.</p>
+		<p class="ckw-hint">Nur für die Kostenschätzung, beeinflusst das Schalten nicht: Leistung × ¼ h × Preis jeder Ein-Viertelstunde im Zeitfenster – bereits gelaufene plus noch geplante –, als <code>rule_…_cost</code> (CHF) und in der Vorschau. Beispiel: 11 kW, 4 h zu 20 Rp. = 8.80 CHF. Bei 0 wird kein Kostenwert gesendet. Die Ein-Zeit in Stunden kommt immer als <code>rule_…_hours</code>.</p>
 
 		<h4>Vorschau</h4>
 		<p id="ruleSummary" class="ckw-hint">Wird berechnet …</p>
@@ -1057,9 +1058,11 @@ global $CKW_RULE_STEP_MODES;
 					ref = d.ref;
 					refresh();
 					var s = d.summary;
-					var txt = (s['in'] ? 'Aktuelles Zeitfenster ' : 'Nächstes Zeitfenster ') + s.window + ': ' + Math.floor(s.on_min / 60) + ':' + ('0' + s.on_min % 60).slice(-2) + ' h Ein geplant';
+					var hm = function (m) { return Math.floor(m / 60) + ':' + ('0' + m % 60).slice(-2) + ' h'; };
+					var tot = s.on_min + s.done_min;
+					var txt = (s['in'] ? 'Aktuelles Zeitfenster ' : 'Nächstes Zeitfenster ') + s.window + ': Ein-Zeit ' + hm(tot) + ' (' + (tot / 60).toFixed(2) + ' h)' + (s.done_min ? ', davon ' + hm(s.done_min) + ' gelaufen' : '');
 					if (s.limit !== null) txt += ', Grenze ' + s.limit.toFixed(<?= $ckwcfg['unit'] === 'rp' ? 2 : 4 ?>) + ' <?= h($punit) ?>';
-					if (s.cost_chf !== null) txt += ', geschätzte Kosten ' + s.cost_chf.toFixed(2) + ' CHF';
+					if (s.cost_chf !== null) txt += ', geschätzte Kosten im Fenster ' + s.cost_chf.toFixed(2) + ' CHF';
 					document.getElementById('ruleSummary').textContent = txt + '.';
 					var pmax = Math.max.apply(null, d.price.filter(function (x) { return x !== null; }).concat([0]));
 					var data = {

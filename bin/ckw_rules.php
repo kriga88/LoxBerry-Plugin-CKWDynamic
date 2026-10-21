@@ -733,7 +733,7 @@ function ckw_rules_state_save(array $s, $nowTs)
 function ckw_rule_state_advance(array $r, $st, $slotTs)
 {
 	$st = (is_array($st) ? $st : array()) + array('slot' => null, 'on' => false, 'inst' => null, 'done' => 0,
-		'run_on' => 0, 'run_off' => 0, 'known' => false, 'val' => null, 'val_held' => 0);
+		'run_on' => 0, 'run_off' => 0, 'known' => false, 'val' => null, 'val_held' => 0, 'price' => null, 'done_cost' => 0.0);
 	$inst = ckw_rule_instance($r, $slotTs);
 	if ($st['slot'] !== null && $slotTs > $st['slot']) {
 		$gap = (int)(($slotTs - $st['slot']) / 900);
@@ -745,7 +745,10 @@ function ckw_rule_state_advance(array $r, $st, $slotTs)
 				}
 			}
 		}
-		$st['done'] = ($st['inst'] === $inst[0] ? $st['done'] : 0) + $counted;
+		$same = $st['inst'] === $inst[0];
+		$st['done'] = ($same ? $st['done'] : 0) + $counted;
+		// Kosten der gelaufenen Viertelstunden (Preis zum Zeitpunkt der Entscheidung, eingestellte Einheit)
+		$st['done_cost'] = ($same ? (float)$st['done_cost'] : 0.0) + $counted * (float)$st['price'];
 		if ($st['on']) {
 			$st['run_on'] += $gap;
 			$st['run_off'] = 0;
@@ -757,6 +760,7 @@ function ckw_rule_state_advance(array $r, $st, $slotTs)
 		$st['known'] = true;
 	} elseif ($st['inst'] !== $inst[0] && $st['slot'] !== $slotTs) {
 		$st['done'] = 0;
+		$st['done_cost'] = 0.0;
 	}
 	$st['inst'] = $inst[0];
 	return $st;
@@ -803,6 +807,7 @@ function ckw_rules_run(array $cfg, array $table, $nowTs, $log = null)
 		$st['val'] = $value;
 		$st['slot'] = $slotTs;
 		$st['on'] = $on;
+		$st['price'] = isset($table[$slotTs]['p'][$r['comp']]) ? $table[$slotTs]['p'][$r['comp']] : null;
 		$newState[$r['key']] = $st;
 
 		$nextTs = null;
@@ -829,14 +834,19 @@ function ckw_rules_run(array $cfg, array $table, $nowTs, $log = null)
 		}
 		$values[$k . '_next_min'] = $nextTs === null ? '-1' : (string)max(0, (int)ceil(($nextTs - $nowTs) / 60));
 		$values[$k . '_next_clock'] = $nextTs === null ? '-1' : (string)(int)ckw_local_time($nextTs, 'Hi');
+		// Ganzes Zeitfenster: bereits gelaufen (nur im laufenden Fenster) + noch geplant
+		$doneSlots = $plan['inst'][2] ? $st['done'] : 0;
+		$totalCost = $cost + ($plan['inst'][2] ? $st['done_cost'] : 0.0);
 		$values[$k . '_left_min'] = (string)($left * 15);
-		$values[$k . '_done_min'] = (string)($plan['inst'][2] ? $st['done'] * 15 : 0);
+		$values[$k . '_done_min'] = (string)($doneSlots * 15);
+		$values[$k . '_hours'] = number_format(($doneSlots + $left) / 4, 2, '.', '');
 		if ($r['power_kw'] > 0) {
-			$values[$k . '_cost'] = number_format($cost / $pf * $r['power_kw'] * 0.25, 2, '.', '');
+			$values[$k . '_cost'] = number_format($totalCost / $pf * $r['power_kw'] * 0.25, 2, '.', '');
 		}
 		$summary[$r['key']] = array(
 			'name' => $r['name'], 'on' => $on, 'value' => $value, 'next' => $nextTs, 'left_min' => $left * 15,
-			'done_min' => $plan['inst'][2] ? $st['done'] * 15 : 0, 'limit' => $plan['limit'], 'inst' => $plan['inst'], 'real' => $real,
+			'done_min' => $doneSlots * 15, 'limit' => $plan['limit'], 'inst' => $plan['inst'], 'real' => $real,
+			'cost_chf' => $r['power_kw'] > 0 ? $totalCost / $pf * $r['power_kw'] * 0.25 : null,
 		);
 		ckw_log($log, 'DEB', "Regel {$r['name']}: " . ($on ? 'Ein' : 'Aus') . ($value !== null ? ", Wert $value" : '') . ", geplant noch " . ($left * 15) . ' min');
 	}
@@ -854,7 +864,10 @@ function ckw_rule_preview(array $r, array $table, $nowTs)
 		$st['val'] = $state[$r['key']]['val_before'];
 		$st['val_held'] = $state[$r['key']]['val_held_before'];
 	}
-	return ckw_rule_plan($r, $table, $slotTs, $st);
+	$plan = ckw_rule_plan($r, $table, $slotTs, $st);
+	$plan['done'] = $plan['inst'][2] ? $st['done'] : 0;
+	$plan['done_cost'] = $plan['inst'][2] ? (float)$st['done_cost'] : 0.0;
+	return $plan;
 }
 
 /**
@@ -923,8 +936,9 @@ function ckw_rule_preview_data(array $r, array $cfg, $nowTs)
 		'window'   => $w ? ckw_rule_day_label($w[0]) . ckw_local_time($w[0], ' d.m. H:i') . ' – ' . ckw_rule_day_label($w[1]) . ckw_local_time($w[1], ' d.m. H:i') : '',
 		'in'       => $plan['inst'][2],
 		'on_min'   => $onMin,
+		'done_min' => $plan['done'] * 15,
 		'limit'    => $plan['limit'],
-		'cost_chf' => $r['power_kw'] > 0 ? $cost / ($cfg['unit'] === 'rp' ? 100 : 1) * $r['power_kw'] * 0.25 : null,
+		'cost_chf' => $r['power_kw'] > 0 ? ($cost + $plan['done_cost']) / ($cfg['unit'] === 'rp' ? 100 : 1) * $r['power_kw'] * 0.25 : null,
 	);
 	return $d;
 }

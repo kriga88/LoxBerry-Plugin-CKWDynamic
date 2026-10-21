@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.0-beta.4 – 2026-10-21 (interne Beta, nicht veröffentlicht)
+- Schaltregeln: geschätzte Kosten (`rule_<k>_cost`) gelten jetzt für das ganze Zeitfenster (bereits gelaufen + geplant) – bisher nur der Rest, bei kurzen Fenstern nach der Ein-Zeit darum 0.00
+- Neu: `rule_<k>_hours` = geschätzte Ein-Zeit im Zeitfenster in Stunden; Regelliste und Vorschau zeigen Ein-Zeit und Kosten
+
 ## 1.3.0-beta.3 – 2026-10-21 (interne Beta, nicht veröffentlicht)
 - Schaltregeln kopieren: Knopf in der Regelliste öffnet den Editor mit allen Einstellungen als neue Regel („… (Kopie)“, eigener Kurzname)
 
