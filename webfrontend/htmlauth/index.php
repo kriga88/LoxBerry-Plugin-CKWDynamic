@@ -189,7 +189,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 				if ($saved['limit_mode'] === 'fixed' && abs($saved['limit_value']) > $bh - $bl + $eps) {
 					$errors[] = "Fixtarif ±: höchstens ±{$fp($bh - $bl)} $u.";
 				}
-				if ($saved['analog'] === 'linear' && min($saved['lin_p1'], $saved['lin_p2']) < $bl - $eps || $saved['analog'] === 'linear' && max($saved['lin_p1'], $saved['lin_p2']) > $bh + $eps) {
+				if ($saved['analog'] === 'linear' && $saved['lin_mode'] === 'abs' && (min($saved['lin_p1'], $saved['lin_p2']) < $bl - $eps || max($saved['lin_p1'], $saved['lin_p2']) > $bh + $eps)) {
 					$errors[] = "Preis A und B: zwischen {$fp($bl)} und {$fp($bh)} $u.";
 				}
 				if ($saved['analog'] === 'steps' && $saved['steps_mode'] === 'abs') {
@@ -902,9 +902,9 @@ global $CKW_RULE_STEP_MODES;
 		<h4>Analogwert (optional)</h4>
 		<div class="ui-field-contain"><label for="r_analog">Analogwert</label><?= $sel('analog', $r['analog'], array('none' => 'keiner', 'steps' => 'Stufen nach Preis', 'linear' => 'linear nach Preis')) ?></div>
 		<div class="af" data-analog="steps">
-			<div class="ui-field-contain"><label for="r_steps_mode">Preis von–bis als</label><?= $sel('steps_mode', $r['steps_mode'], $CKW_RULE_STEP_MODES) ?></div>
+			<div class="ui-field-contain"><label for="r_steps_mode">von–bis eingeben als</label><?= $sel('steps_mode', $r['steps_mode'], $CKW_RULE_STEP_MODES) ?></div>
 			<table class="ckw-table" style="max-width:720px" id="stepTable">
-				<tr><th>von</th><th>bis</th><th>Wert</th><th>entspricht</th></tr>
+				<tr><th>von <span class="st-unit"></span></th><th>bis <span class="st-unit"></span></th><th>Wert</th><th>entspricht</th></tr>
 				<?php foreach ($stepsForm as $si => $stp): ?>
 					<tr class="step-row">
 						<td><input type="number" step="any" class="st-from" name="rule[steps][<?= $si ?>][from]" value="<?= h($stp['from']) ?>" data-role="none" style="width:90px"></td>
@@ -919,11 +919,12 @@ global $CKW_RULE_STEP_MODES;
 			<div class="ui-field-contain"><label for="r_else_value">Wert übrige Preise</label><?= $inp('else_value', $r['else_value'], 'number', 'step="any"') ?></div>
 		</div>
 		<div class="af" data-analog="linear">
-			<div class="ui-field-contain"><label for="r_lin_p1">Preis A (<?= h($punit) ?>)</label><?= $inp('lin_p1', $r['lin_p1'], 'number', 'step="any" class="band-price"') ?></div>
+			<div class="ui-field-contain"><label for="r_lin_mode">Punkte A/B eingeben als</label><?= $sel('lin_mode', $r['lin_mode'], array('band_min' => '% Preisband ab Minimum', 'abs' => 'fester Preis')) ?></div>
+			<div class="ui-field-contain"><label for="r_lin_p1">Punkt A <span class="lin-unit"></span></label><?= $inp('lin_p1', $r['lin_p1'], 'number', 'step="any"') ?> <b class="lin-info" data-for="lin_p1"></b></div>
 			<div class="ui-field-contain"><label for="r_lin_v1">ergibt Wert</label><?= $inp('lin_v1', $r['lin_v1'], 'number', 'step="any"') ?></div>
-			<div class="ui-field-contain"><label for="r_lin_p2">Preis B (<?= h($punit) ?>)</label><?= $inp('lin_p2', $r['lin_p2'], 'number', 'step="any" class="band-price"') ?></div>
+			<div class="ui-field-contain"><label for="r_lin_p2">Punkt B <span class="lin-unit"></span></label><?= $inp('lin_p2', $r['lin_p2'], 'number', 'step="any"') ?> <b class="lin-info" data-for="lin_p2"></b></div>
 			<div class="ui-field-contain"><label for="r_lin_v2">ergibt Wert</label><?= $inp('lin_v2', $r['lin_v2'], 'number', 'step="any"') ?></div>
-			<p class="ckw-hint">Dazwischen wird gleitend umgerechnet, ausserhalb bleibt der Wert bei A bzw. B. Preise A und B im CKW-Preisband <span class="band-text"></span>.</p>
+			<p class="ckw-hint">Dazwischen wird gleitend umgerechnet, ausserhalb bleibt der Wert bei A bzw. B. Beispiel mit % Preisband: A = 0 % → 100, B = 30 % → 20. Als fester Preis nur im CKW-Preisband <span class="band-text"></span>.</p>
 		</div>
 		<div class="af" data-analog="steps linear">
 			<div class="ui-field-contain"><label for="r_off_value">Wert, wenn die Regel aus ist</label><?= $inp('off_value', $r['off_value'], 'number', 'step="any"') ?></div>
@@ -1013,8 +1014,23 @@ global $CKW_RULE_STEP_MODES;
 			var p = priceFor(mode, num.value), bp = p === null ? null : bandPct(p);
 			document.querySelector('.lim-info').textContent = p === null ? '' : '= ' + fmt(p) + ' ' + unit + (bp !== null && mode !== 'band_min' && mode !== 'band_max' ? ' (' + Math.round(bp) + ' % des Preisbands)' : '');
 		}
+		function unitOf(mode) { return pctModes.indexOf(mode) >= 0 ? '(%)' : '(' + unit + ')'; }
+		function setupLinear() {
+			var mode = val('lin_mode'), rg = rangeFor(mode);
+			Array.prototype.forEach.call(document.querySelectorAll('.lin-unit'), function (e) { e.textContent = unitOf(mode); });
+			Array.prototype.forEach.call(document.querySelectorAll('.lin-info'), function (e) {
+				var inp = document.getElementById('r_' + e.getAttribute('data-for'));
+				if (rg) { inp.min = rg[0]; inp.max = rg[1]; inp.placeholder = rg[3] === '%' ? '0–100' : ''; }
+				var p = priceFor(mode, inp.value), v = parseFloat(inp.value);
+				var bad = rg && !isNaN(v) && (v < rg[0] - 1e-9 || v > rg[1] + 1e-9);
+				inp.style.background = bad ? '#fde8e8' : '';
+				e.textContent = bad ? 'nur ' + fmtR(rg) : (p === null || mode === 'abs' ? '' : '= ' + fmt(p) + ' ' + unit);
+			});
+		}
 		function setupSteps() {
 			var mode = val('steps_mode'), warn = [], rows = [];
+			Array.prototype.forEach.call(document.querySelectorAll('.st-unit'), function (e) { e.textContent = unitOf(mode); });
+			Array.prototype.forEach.call(document.querySelectorAll('.st-from, .st-to'), function (e) { e.placeholder = pctModes.indexOf(mode) >= 0 ? '%' : unit; });
 			Array.prototype.forEach.call(document.querySelectorAll('.step-row'), function (tr, i) {
 				var f = tr.querySelector('.st-from').value, t = tr.querySelector('.st-to').value, o = tr.querySelector('.st-out').value;
 				var info = tr.querySelector('.st-info'), bad = false;
@@ -1045,7 +1061,7 @@ global $CKW_RULE_STEP_MODES;
 			if (p.length) t += ' Preise im Zeitfenster: ' + fmt(p[0]) + ' – ' + fmt(p[p.length - 1]) + ' ' + unit + (b ? ' = ' + Math.round(bandPct(p[0])) + ' % bis ' + Math.round(bandPct(p[p.length - 1])) + ' % des Preisbands' : '') + '.';
 			document.querySelector('.ref-info').textContent = t;
 		}
-		function refresh() { setupLimit(); setupSteps(); setupRef(); }
+		function refresh() { setupLimit(); setupSteps(); setupLinear(); setupRef(); }
 		document.getElementById('r_limit_range').addEventListener('input', function () { document.getElementById('r_limit_value').value = this.value; setupLimit(); schedule(); });
 
 		var chart = null, timer = null;
@@ -1090,7 +1106,7 @@ global $CKW_RULE_STEP_MODES;
 		}
 		function schedule() { clearTimeout(timer); timer = setTimeout(preview, 400); }
 		form.addEventListener('change', function () { toggle(); refresh(); schedule(); });
-		form.addEventListener('input', function () { setupLimit(); setupSteps(); schedule(); });
+		form.addEventListener('input', function () { setupLimit(); setupSteps(); setupLinear(); schedule(); });
 		toggle();
 		refresh();
 		preview();

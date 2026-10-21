@@ -173,7 +173,7 @@ Der Loxone Spotpreis-Optimierer lässt sich nur wenig einstellen. Im Reiter **Re
   * **Vorrang** (Laufzeit): //Komfort// hält Mindestzeit und max. Aus-Zeit ein, notfalls über der Obergrenze. //Preis// schaltet nie über der Obergrenze ein und verfehlt dafür notfalls die Mindestzeit.
   * **Analogwert:**
     * //Stufen//: bis zu 5 Zeilen „Preis von–bis → Wert“, wahlweise als Anteil der Viertelstunden, % Preisband oder fester Preis. Es gilt die erste passende Zeile, ein Preis auf der Grenze gehört zur oberen Zeile. Ausserhalb aller Zeilen gilt der Wert für die übrigen Preise. Lücken und Überlappungen zeigt der Editor an.
-    * //linear//: Preis A → Wert X, Preis B → Wert Y, dazwischen gleitend
+    * //linear//: Punkt A → Wert X, Punkt B → Wert Y, dazwischen gleitend; A/B in % Preisband (z. B. 0 % → 100, 30 % → 20) oder als fester Preis
     * dazu ein Wert für „Regel aus“ und eine Haltezeit gegen Springen
   * **Ohne aktuelle Preise:** nach Plan, Aus oder Ein.
   * **Leistung** (optional): Damit schätzt das Plugin die Kosten im Zeitfenster (gelaufene + geplante Viertelstunden). Auf das Schalten hat sie keinen Einfluss.

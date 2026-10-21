@@ -76,6 +76,7 @@ function ckw_rule_defaults()
 		'steps'         => array(),
 		'else_value'    => 0.0,
 		'off_value'     => 0.0,
+		'lin_mode'      => 'abs',
 		'lin_p1'        => 0.0,
 		'lin_v1'        => 100.0,
 		'lin_p2'        => 0.0,
@@ -212,7 +213,15 @@ function ckw_sanitize_rule(array $in, array &$errors)
 			break;
 		}
 	}
+	$r['lin_mode'] = in_array($c['lin_mode'], array('abs', 'band_min'), true) ? $c['lin_mode'] : 'abs';
+	if ($r['lin_mode'] === 'band_min') {
+		$r['lin_p1'] = $num('lin_p1', 0, 100, 'Linear: Punkt A zwischen 0 und 100 %.');
+		$r['lin_p2'] = $num('lin_p2', 0, 100, 'Linear: Punkt B zwischen 0 und 100 %.');
+	}
 	foreach (array('else_value', 'off_value', 'lin_p1', 'lin_v1', 'lin_p2', 'lin_v2') as $k) {
+		if ($r['lin_mode'] === 'band_min' && ($k === 'lin_p1' || $k === 'lin_p2')) {
+			continue;
+		}
 		$r[$k] = $num($k, -100000, 100000, 'Analogwert ungültig.');
 	}
 	$r['hold_min'] = (int)$num('hold_min', 0, 480, 'Haltezeit zwischen 0 und 480 Minuten.');
@@ -250,6 +259,9 @@ function ckw_sanitize_rules($rules, array &$errors)
 function ckw_rule_templates()
 {
 	$d = ckw_rule_defaults();
+	$d['lin_mode'] = 'band_min';   // neue Regeln: linearer Analogwert in % Preisband (bestehende behalten "fester Preis")
+	$d['lin_p1'] = 0.0;
+	$d['lin_p2'] = 30.0;
 	return array(
 		'auto' => array('label' => 'Auto laden', 'rule' => array_merge($d, array(
 			'name' => 'Auto laden', 'type' => 'cheapest', 'win_from' => '18:00', 'win_to' => '07:00', 'hours' => 4.0))),
@@ -584,6 +596,11 @@ function ckw_rule_step_limits(array $r, array $basis, $fixed, $band)
 		$b = ckw_rule_limit($r['steps_mode'], $s['to'], $basis, $fixed, $band);
 		$out[$i] = array($a, $b);
 	}
+	// Linear: Punkte A/B als Preis (fester Preis bzw. % Preisband ab Minimum)
+	$out['lin'] = array(
+		ckw_rule_limit($r['lin_mode'], $r['lin_p1'], $basis, $fixed, $band),
+		ckw_rule_limit($r['lin_mode'], $r['lin_p2'], $basis, $fixed, $band),
+	);
 	return $out;
 }
 
@@ -601,10 +618,11 @@ function ckw_rule_map_value(array $r, $price, array $stepLimits)
 		return $r['else_value'];
 	}
 	if ($r['analog'] === 'linear') {
-		if ($r['lin_p1'] == $r['lin_p2']) {
+		list($p1, $p2) = isset($stepLimits['lin']) ? $stepLimits['lin'] : array($r['lin_p1'], $r['lin_p2']);
+		if ($p1 === null || $p2 === null || $p1 == $p2) {
 			return $r['lin_v1'];
 		}
-		$t = ($price - $r['lin_p1']) / ($r['lin_p2'] - $r['lin_p1']);
+		$t = ($price - $p1) / ($p2 - $p1);
 		$t = max(0.0, min(1.0, $t));
 		return $r['lin_v1'] + $t * ($r['lin_v2'] - $r['lin_v1']);
 	}
