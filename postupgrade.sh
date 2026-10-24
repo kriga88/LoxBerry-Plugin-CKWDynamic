@@ -5,9 +5,16 @@
 
 PTEMPDIR=$1
 PDIR=$3
+# Ohne diese Argumente wuerden die Pfade unten auf fremde Ordner zeigen (cp in alle Plugin-Ordner, rm -rf)
+if [ -z "$PTEMPDIR" ] || [ -z "$PDIR" ] || [ -z "$LBPCONFIG" ] || [ -z "$LBPDATA" ]; then
+	echo "<ERROR> Aufruf ohne Plugin-Ordner bzw. Temp-Ordner - Abbruch."
+	exit 1
+fi
 BACKUP=/tmp/${PTEMPDIR}_upgrade
 
-if [ -d "$BACKUP" ]; then
+if [ -L "$BACKUP" ] || { [ -e "$BACKUP" ] && [ ! -O "$BACKUP" ]; }; then
+	echo "<ERROR> $BACKUP ist ein Symlink oder gehört einem anderen Benutzer - Einstellungen werden nicht übernommen."
+elif [ -d "$BACKUP" ]; then
 	echo "<INFO> Stelle Einstellungen aus $BACKUP wieder her"
 	cp -p -v -r "$BACKUP/config/." "$LBPCONFIG/$PDIR/" 2>/dev/null
 	cp -p -v -r "$BACKUP/data/." "$LBPDATA/$PDIR/" 2>/dev/null

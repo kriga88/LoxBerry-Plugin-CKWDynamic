@@ -7,16 +7,26 @@
  * sind auf wenige Funktionen beschraenkt, damit die Logik auch ausserhalb testbar bleibt.
  */
 
-define('CKW_API_URL', getenv('CKW_API_URL') ?: 'https://e-ckw-public-data.de-c1.eu1.cloudhub.io/api/v1/netzinformationen/energie/dynamische-preise');   // Umgebungsvariable nur fuer Tests
-define('CKW_TARIFFS_URL', getenv('CKW_TARIFFS_URL') ?: 'https://raw.githubusercontent.com/kriga88/LoxBerry-Plugin-CKWDynamic/main/tariffs.json');   // Umgebungsvariable nur fuer Tests
+// URLs per Umgebungsvariable umleiten: nur fuer Tests und nur auf der Kommandozeile (nie im Webserver)
+function ckw_test_env($name)
+{
+	return PHP_SAPI === 'cli' ? getenv($name) : false;
+}
+
+define('CKW_API_URL', ckw_test_env('CKW_API_URL') ?: 'https://e-ckw-public-data.de-c1.eu1.cloudhub.io/api/v1/netzinformationen/energie/dynamische-preise');
+define('CKW_TARIFFS_URL', ckw_test_env('CKW_TARIFFS_URL') ?: 'https://raw.githubusercontent.com/kriga88/LoxBerry-Plugin-CKWDynamic/main/tariffs.json');
 define('CKW_TZ', 'Europe/Zurich');
+// Groesste akzeptierte HTTP-Antworten (Speicher: auch kleines, praepariertes JSON kann beim Dekodieren viel RAM brauchen).
+// Normalgroessen 2026: CKW-API ca. 110 KB (2 Tage), CKW-Seite 85 KB, Tarifdateien bis 50 KB, GitHub-Tabelle 25 KB.
+define('CKW_HTTP_MAX_BYTES', 1024 * 1024);
+define('CKW_HTTP_MAX_GITHUB', 512 * 1024);
 define('CKW_LOX_EPOCH_OFFSET', 1230768000);   // Loxone-Zeit = Unix-Zeit - 1.1.2009
 // Gemeinden, deren prozentuale Konzessionsabgabe laut CKW-Preisblatt OHNE Stromreserve berechnet wird
 define('CKW_PERCENT_EXCL_RESERVE', 'Ebikon|Escholzmatt-Marbach|Flühli|Hasle|Hergiswil bei Willisau|Honau|Nottwil|Oberkirch|Werthenstein');
 define('CKW_TARIFFS_MAXAGE', 86400);          // Preistabellen hoechstens 1x pro Tag laden
 define('CKW_TARIFFS_RETRY', 6 * 3600);        // nach einem Fehler fruehestens nach 6 Stunden erneut versuchen
 define('CKW_TARIFF_CACHE_FORMAT', 2);         // erhoehen, wenn sich die Auswertung der CKW-Tarifdatei aendert
-define('CKW_TARIFFS_PAGE', getenv('CKW_TARIFFS_PAGE') ?: 'https://www.ckw.ch/energie/strom/stromprodukte/privat');   // verlinkt die maschinenlesbaren Tarifdateien (Umgebungsvariable nur fuer Tests)
+define('CKW_TARIFFS_PAGE', ckw_test_env('CKW_TARIFFS_PAGE') ?: 'https://www.ckw.ch/energie/strom/stromprodukte/privat');   // verlinkt die maschinenlesbaren Tarifdateien
 
 require_once __DIR__ . '/ckw_stats.php';
 require_once __DIR__ . '/ckw_rules.php';
@@ -143,12 +153,26 @@ function ckw_to_float($v, $default)
  * Prueft und normalisiert eine Konfiguration. Fehler werden in $errors gesammelt,
  * ungueltige Werte durch die Standardwerte ersetzt.
  */
+/**
+ * Verwirft Felder mit falschem Typ (z. B. Array statt Text aus einem manipulierten Formular),
+ * damit die Pruefungen danach nie an einem unerwarteten Typ scheitern (TypeError).
+ */
+function ckw_typed_fields(array $in, array $defaults)
+{
+	foreach ($in as $k => $v) {
+		if (!array_key_exists($k, $defaults) || is_object($v) || is_array($defaults[$k]) !== is_array($v)) {
+			unset($in[$k]);
+		}
+	}
+	return $in;
+}
+
 function ckw_sanitize_config(array $in, &$errors = null)
 {
 	global $CKW_COMPONENTS, $CKW_TARIFF_NAMES;
 	$errors = array();
 	$d = ckw_defaults();
-	$c = array_merge($d, $in);
+	$c = array_merge($d, ckw_typed_fields($in, $d));
 	$out = array();
 
 	$out['tariff'] = isset($CKW_TARIFF_NAMES[$c['tariff']]) ? $c['tariff'] : $d['tariff'];
@@ -178,7 +202,7 @@ function ckw_sanitize_config(array $in, &$errors = null)
 
 	$out['unit'] = in_array($c['unit'], array('chf', 'rp'), true) ? $c['unit'] : $d['unit'];
 
-	$comps = is_array($c['components']) ? $c['components'] : array();
+	$comps = is_array($c['components']) ? array_filter($c['components'], 'is_string') : array();
 	$out['components'] = array_values(array_intersect(array_keys($CKW_COMPONENTS), $comps));
 
 	$out['series_rel'] = ckw_to_bool($c['series_rel']);
@@ -296,30 +320,52 @@ function ckw_write_subscriptions(array $cfg)
 /**
  * HTTP-Anfrage (GET, oder POST wenn $postBody gesetzt). Liefert den Body bei Status 200, sonst null + $error.
  */
-function ckw_http_get($url, $timeout, &$error, $accept = 'application/json', $postBody = null, $contentType = 'application/json')
+function ckw_http_get($url, $timeout, &$error, $accept = 'application/json', $postBody = null, $contentType = 'application/json', $maxBytes = CKW_HTTP_MAX_BYTES)
 {
 	$error = null;
+	if (!preg_match('#^https?://#i', (string)$url)) {
+		$error = 'Ungültige URL (nur http/https)';
+		return null;
+	}
 	$headers = array('Accept: ' . $accept);
 	if ($postBody !== null) {
 		$headers[] = 'Content-Type: ' . $contentType;
 	}
 	if (function_exists('curl_init')) {
 		$ch = curl_init($url);
+		$body = '';
+		$tooBig = false;
 		curl_setopt_array($ch, array(
-			CURLOPT_RETURNTRANSFER => true,
 			CURLOPT_FOLLOWLOCATION => true,
+			CURLOPT_MAXREDIRS      => 3,
+			CURLOPT_PROTOCOLS      => CURLPROTO_HTTPS | CURLPROTO_HTTP,
+			CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,   // Weiterleitungen nur auf HTTPS (nie file:// o. ae.)
+			CURLOPT_SSL_VERIFYPEER => true,
+			CURLOPT_SSL_VERIFYHOST => 2,
 			CURLOPT_CONNECTTIMEOUT => min(10, $timeout),
 			CURLOPT_TIMEOUT        => $timeout,
 			CURLOPT_USERAGENT      => 'LoxBerry-Plugin-CKWDynamic',
 			CURLOPT_HTTPHEADER     => $headers,
+			CURLOPT_MAXFILESIZE    => $maxBytes,
+			// Antwort in Bloecken lesen und abbrechen, sobald sie zu gross wird (Speicher schonen)
+			CURLOPT_WRITEFUNCTION  => function ($ch, $chunk) use (&$body, &$tooBig, $maxBytes) {
+				if (strlen($body) + strlen($chunk) > $maxBytes) {
+					$tooBig = true;
+					return 0;
+				}
+				$body .= $chunk;
+				return strlen($chunk);
+			},
 		));
 		if ($postBody !== null) {
 			curl_setopt($ch, CURLOPT_POST, true);
 			curl_setopt($ch, CURLOPT_POSTFIELDS, $postBody);
 		}
-		$body = curl_exec($ch);
+		$ok = curl_exec($ch);
 		$code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-		if ($body === false) {
+		if ($tooBig) {
+			$error = 'Antwort zu gross (über ' . round($maxBytes / 1024) . ' KB)';
+		} elseif ($ok === false) {
 			$error = 'HTTP-Fehler: ' . curl_error($ch);
 		} elseif ($code !== 200) {
 			$error = "HTTP-Status $code";
@@ -333,13 +379,18 @@ function ckw_http_get($url, $timeout, &$error, $accept = 'application/json', $po
 		'timeout' => $timeout,
 		'header'  => implode("\r\n", $headers) . "\r\nUser-Agent: LoxBerry-Plugin-CKWDynamic\r\n",
 		'ignore_errors' => true,
+		'follow_location' => 0,   // ohne curl keine Weiterleitungen (Protokoll/Ziel liessen sich nicht einschraenken)
 	);
 	if ($postBody !== null) {
 		$opts['method'] = 'POST';
 		$opts['content'] = $postBody;
 	}
-	$ctx = stream_context_create(array('http' => $opts));
-	$body = @file_get_contents($url, false, $ctx);
+	$ctx = stream_context_create(array('http' => $opts, 'ssl' => array('verify_peer' => true, 'verify_peer_name' => true)));
+	$body = @file_get_contents($url, false, $ctx, 0, $maxBytes + 1);
+	if ($body !== false && strlen($body) > $maxBytes) {
+		$error = 'Antwort zu gross (über ' . round($maxBytes / 1024) . ' KB)';
+		return null;
+	}
 	$headers = function_exists('http_get_last_response_headers') ? http_get_last_response_headers() : ckw_legacy_headers(get_defined_vars());
 	$status = isset($headers[0]) ? $headers[0] : '';
 	if ($body === false) {
@@ -371,7 +422,7 @@ function ckw_read_json($file)
 function ckw_write_json($file, $data)
 {
 	$tmp = $file . '.' . getmypid() . '.tmp';
-	$json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+	$json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 	if ($json === false || file_put_contents($tmp, $json . "\n") === false) {
 		@unlink($tmp);
 		return false;
@@ -389,11 +440,12 @@ function ckw_tariffs_valid($t)
 		return false;
 	}
 	foreach ($t['products'] as $p) {
-		if (!isset($p['name'], $p['prices']) || !is_array($p['prices'])) {
+		// Fremddaten (GitHub): Typen pruefen, bevor Texte an preg_match o. ae. gehen (sonst TypeError unter PHP 8)
+		if (!is_array($p) || !isset($p['name'], $p['prices']) || !is_string($p['name']) || !is_array($p['prices'])) {
 			return false;
 		}
 		foreach ($p['prices'] as $e) {
-			if (!isset($e['valid_from'], $e['rp_kwh']) || !is_numeric($e['rp_kwh'])
+			if (!is_array($e) || !isset($e['valid_from'], $e['rp_kwh']) || !is_string($e['valid_from']) || !is_numeric($e['rp_kwh'])
 				|| !preg_match('/^\d{4}-\d{2}-\d{2}$/', $e['valid_from'])) {
 				return false;
 			}
@@ -419,15 +471,21 @@ function ckw_parse_ckw_tariff_file(array $j)
 		return $out;
 	}
 	$map = array('budget' => 'budget', 'meinregio' => 'meinregio', 'class' => 'classic');   // CKW schreibt teils "ClassisStrom"
+	// Fremddaten (ckw.ch): jedes Feld auf seinen Typ pruefen - ein Array statt eines Texts darf nie zu einem
+	// TypeError fuehren, der den ganzen Abruf abbricht
+	$str = function ($a, $k) { return (is_array($a) && isset($a[$k]) && is_string($a[$k])) ? $a[$k] : ''; };
 	foreach ($j['tariffs'] as $t) {
-		$type = isset($t['tariffType']) ? $t['tariffType'] : '';
-		$from = isset($t['startDate']) ? (string)$t['startDate'] : '';
+		if (!is_array($t)) {
+			continue;
+		}
+		$type = $str($t, 'tariffType');
+		$from = $str($t, 'startDate');
 		if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) {
 			continue;
 		}
-		$name = isset($t['tariffName']) ? (string)$t['tariffName'] : '';
+		$name = $str($t, 'tariffName');
 
-		if ($type === 'electricity' && isset($t['customerType']) && stripos($t['customerType'], 'grundversorgung') !== false) {
+		if ($type === 'electricity' && stripos($str($t, 'customerType'), 'grundversorgung') !== false) {
 			$key = null;
 			foreach ($map as $needle => $k) {
 				if (stripos(str_replace(' ', '', $name), $needle) !== false) {
@@ -450,7 +508,7 @@ function ckw_parse_ckw_tariff_file(array $j)
 		// Eintraege mit Konzession im Preis (Datei 2026: "Inkl. Konession 10%") werden ignoriert,
 		// weil die Konzessionsabgabe separat pro Gemeinde gerechnet wird.
 		$staticMap = array('ckw netz e' => 'home_dynamic', 'ckw netz lg7' => 'business_dynamic');
-		$comment = isset($t['comment']) ? (string)$t['comment'] : '';
+		$comment = $str($t, 'comment');
 		if ($type === 'grid' && isset($staticMap[strtolower(trim($name))]) && !preg_match('/konz|konession/i', $comment)) {
 			$energy = isset($t['prices']['energy']) && is_array($t['prices']['energy']) ? $t['prices']['energy'] : array();
 			if (count($energy) === 1 && isset($energy[0]['price']) && is_numeric($energy[0]['price'])) {
@@ -464,7 +522,10 @@ function ckw_parse_ckw_tariff_file(array $j)
 		if ($type === 'regional_fees' && isset($t['prices']['municipalityTaxes']) && is_array($t['prices']['municipalityTaxes'])) {
 			$fees = array();   // je Abgabe zaehlt eine Gemeinde nur einmal (CKW fuehrt z. B. Fluehli doppelt)
 			foreach ($t['prices']['municipalityTaxes'] as $m) {
-				$mn = isset($m['municipalityName']) ? trim((string)$m['municipalityName']) : '';
+				$mn = trim($str($m, 'municipalityName'));
+				if (strlen($mn) > 100) {
+					continue;
+				}
 				$me = isset($m['municipalityEnergy']) && is_array($m['municipalityEnergy']) ? $m['municipalityEnergy'] : array();
 				if ($mn === '' || count($me) !== 1 || !isset($me[0]['price']) || !is_numeric($me[0]['price'])) {
 					continue;
@@ -475,7 +536,7 @@ function ckw_parse_ckw_tariff_file(array $j)
 				}
 				// CKW kennzeichnet prozentuale Abgaben im Kommentar ("noch mit 10% auf Netznutzung") und
 				// traegt nur einen Durchschnitt ein -> exakt pro Viertelstunde rechnen
-				$comment = isset($m['municipalityComment']) ? (string)$m['municipalityComment'] : '';
+				$comment = $str($m, 'municipalityComment');
 				if (preg_match('/(\d+(?:[.,]\d+)?)\s*%\s*auf\s+Netznutzung/iu', $comment, $pm)) {
 					$fees[$mn] = array('percent' => (float)str_replace(',', '.', $pm[1]), 'avg_rp' => $rp);
 				} else {
@@ -528,6 +589,11 @@ function ckw_load_ckw_tariffs($allowNetwork, $log = null)
 	$due = !$cache || (!empty($cache['failed']) ? $age > 6 * 3600 : $age > CKW_TARIFFS_MAXAGE);
 
 	if ($allowNetwork && $due) {
+		// Fehlermarker vorher setzen: scheitert das Einlesen hart, wird nicht bei jedem Lauf neu geladen
+		$mark = $cache ?: array('format' => CKW_TARIFF_CACHE_FORMAT, 'data' => null, 'updated' => '', 'files' => array());
+		$mark['checked'] = time();
+		$mark['failed'] = true;
+		ckw_write_json($cacheFile, $mark);
 		$err = null;
 		$page = ckw_http_get(CKW_TARIFFS_PAGE, 20, $err, 'text/html,application/xhtml+xml,*/*;q=0.8');
 		$urls = array();
@@ -540,7 +606,7 @@ function ckw_load_ckw_tariffs($allowNetwork, $log = null)
 		$updated = '';
 		foreach (array_slice($urls, 0, 6) as $u) {
 			$body = ckw_http_get($u, 20, $err, 'application/json,*/*;q=0.8');
-			$j = $body !== null ? json_decode($body, true) : null;
+			$j = $body !== null ? json_decode($body, true, 32) : null;
 			if (!is_array($j)) {
 				ckw_log($log, 'WARN', "CKW-Tarifdatei nicht lesbar: $u");
 				continue;
@@ -554,10 +620,7 @@ function ckw_load_ckw_tariffs($allowNetwork, $log = null)
 			ckw_log($log, 'OK', 'Jahrespreise aus ' . count($urls) . ' CKW-Tarifdatei(en) übernommen (Stand ' . $updated . ').');
 		} else {
 			ckw_log($log, 'WARN', 'CKW-Tarifdateien nicht gefunden oder unbrauchbar (' . ($err ?: count($urls) . ' Links') . ') - verwende gespeicherte Preise bzw. Rückfalltabelle.');
-			$cache = $cache ?: array('format' => CKW_TARIFF_CACHE_FORMAT, 'data' => null, 'updated' => '', 'files' => array());
-			$cache['checked'] = time();
-			$cache['failed'] = true;
-			ckw_write_json($cacheFile, $cache);
+			$cache = $mark;   // Fehlermarker steht bereits
 		}
 	}
 	return ($cache && !empty($cache['data']['products'])) ? array('data' => $cache['data'], 'updated' => $cache['updated']) : null;
@@ -585,15 +648,23 @@ function ckw_entry_max($key)
 /** Fuehrt zwei Tabellen zusammen; Eintraege von $b ersetzen solche von $a mit gleichem Gueltig-ab-Datum. */
 function ckw_merge_tariffs(array $a, array $b)
 {
+	// Obergrenzen gegen aufgeblaehte Fremddaten (Speicher, Caches, Auswahllisten)
+	$maxKeys = array('products' => 20, 'municipalities' => 1000, 'dynamic_reference' => 100, 'static_grid' => 10);
 	foreach (array('products', 'municipalities', 'dynamic_reference', 'static_grid') as $sec) {
-		if (empty($b[$sec])) {
+		if (empty($b[$sec]) || !is_array($b[$sec])) {
 			continue;
 		}
 		foreach ($b[$sec] as $key => $entry) {
-			if (!is_array($entry) || (isset($a[$sec][$key]) && !is_array($a[$sec][$key]))) {
+			if (!is_array($entry) || (isset($a[$sec][$key]) && !is_array($a[$sec][$key])) || strlen((string)$key) > 100) {
 				continue;   // Infotexte o. ae. ueberspringen
 			}
+			if (!isset($a[$sec][$key]) && isset($a[$sec]) && count($a[$sec]) >= $maxKeys[$sec]) {
+				continue;
+			}
 			$newPrices = $sec === 'products' && isset($entry['prices']) ? $entry['prices'] : $entry;
+			if (!is_array($newPrices)) {
+				continue;
+			}
 			$old = array();
 			if (isset($a[$sec][$key])) {
 				$old = $sec === 'products' && isset($a[$sec][$key]['prices']) ? $a[$sec][$key]['prices'] : $a[$sec][$key];
@@ -605,12 +676,17 @@ function ckw_merge_tariffs(array $a, array $b)
 				}
 			}
 			ksort($byDate);
+			$byDate = array_slice($byDate, -50, null, true);   // hoechstens 50 Jahrespreise je Eintrag
 			if ($sec === 'products') {
-				$meta = isset($a[$sec][$key]) && isset($a[$sec][$key]['name']) ? $a[$sec][$key] : (isset($entry['name']) ? $entry : array('name' => $key));
-				foreach (array('name', 'description', 'from_api') as $f) {
-					if (isset($entry[$f])) {
-						$meta[$f] = $entry[$f];
+				// Basis: bekannter Eintrag, sonst nur der Schluessel als Name (fremde Felder nie ungeprueft uebernehmen)
+				$meta = isset($a[$sec][$key]) && isset($a[$sec][$key]['name']) ? $a[$sec][$key] : array('name' => (string)$key);
+				foreach (array('name', 'description') as $f) {
+					if (isset($entry[$f]) && is_string($entry[$f])) {
+						$meta[$f] = function_exists('mb_substr') ? mb_substr($entry[$f], 0, 200) : substr($entry[$f], 0, 200);
 					}
+				}
+				if (isset($entry['from_api'])) {
+					$meta['from_api'] = (bool)$entry['from_api'];
 				}
 				$meta['prices'] = array_values($byDate);
 				$a[$sec][$key] = $meta;
@@ -645,25 +721,39 @@ function ckw_load_tariffs($remote, $log = null, $allowNetwork = true)
 		$stale = !$gh || time() - filemtime($cacheFile) >= CKW_TARIFFS_MAXAGE;
 		$retryOk = !is_file($failFile) || time() - filemtime($failFile) >= CKW_TARIFFS_RETRY;
 		if ($allowNetwork && $stale && $retryOk) {
-			$err = null;
-			$body = ckw_http_get(CKW_TARIFFS_URL, 15, $err);
-			$new = $body !== null ? json_decode($body, true) : null;
-			if (ckw_tariffs_valid($new)) {
-				ckw_write_json($cacheFile, $new);
-				@unlink($failFile);
-				$gh = $new;
-			} else {
-				ckw_log($log, 'DEB', 'GitHub-Preistabelle nicht geladen (' . ($err ?: 'ungültiges Format') . ') - nächster Versuch in 6 Stunden.');
-				touch($failFile);
+			// Fehlermarker vorher setzen: scheitert das Einlesen hart, wird nicht bei jedem Lauf neu geladen
+			@touch($failFile);
+			try {
+				$err = null;
+				$body = ckw_http_get(CKW_TARIFFS_URL, 15, $err, 'application/json', null, 'application/json', CKW_HTTP_MAX_GITHUB);
+				$new = $body !== null ? json_decode($body, true, 16) : null;
+				if (ckw_tariffs_valid($new)) {
+					// nur die gepruefte, bereinigte Tabelle speichern (nie den Rohtext)
+					$clean = ckw_merge_tariffs($empty, $new);
+					$clean['updated'] = ckw_valid_date(isset($new['updated']) ? $new['updated'] : '');
+					ckw_write_json($cacheFile, $clean);
+					@unlink($failFile);
+					$gh = $clean;
+				} else {
+					ckw_log($log, 'DEB', 'GitHub-Preistabelle nicht geladen (' . ($err ?: 'ungültiges Format') . ') - nächster Versuch in 6 Stunden.');
+				}
+			} catch (Throwable $e) {
+				ckw_log($log, 'WARN', 'GitHub-Preistabelle unbrauchbar (' . $e->getMessage() . ') - nächster Versuch in 6 Stunden.');
 			}
 		}
 		if (ckw_tariffs_valid($gh)) {
+			$ghUpdated = ckw_valid_date(isset($gh['updated']) ? $gh['updated'] : '');
 			$data = ckw_merge_tariffs($data, $gh);
-			$sources[] = 'GitHub ' . (isset($gh['updated']) ? $gh['updated'] : '');
-			$updated = max($updated, isset($gh['updated']) ? $gh['updated'] : '');
+			$sources[] = 'GitHub ' . $ghUpdated;
+			$updated = max($updated, $ghUpdated);
 		}
 
-		$ckw = ckw_load_ckw_tariffs($allowNetwork, $log);
+		try {
+			$ckw = ckw_load_ckw_tariffs($allowNetwork, $log);
+		} catch (Throwable $e) {
+			$ckw = null;
+			ckw_log($log, 'WARN', 'CKW-Tarifdatei unbrauchbar (' . $e->getMessage() . ') - verwende gespeicherte Preise bzw. Rückfalltabelle.');
+		}
 		if ($ckw) {
 			$data = ckw_merge_tariffs($data, $ckw['data']);
 			$sources[] = 'CKW-Tarifdatei ' . $ckw['updated'];
@@ -677,6 +767,12 @@ function ckw_load_tariffs($remote, $log = null, $allowNetwork = true)
 		}
 	}
 	return array('data' => $data, 'source' => implode(', ', $sources), 'updated' => $updated, 'ckw' => $ckwOk);
+}
+
+/** Datum JJJJ-MM-TT aus Fremddaten, sonst '' */
+function ckw_valid_date($v)
+{
+	return (is_string($v) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $v)) ? $v : '';
 }
 
 /** Gueltiger Eintrag einer Preisliste fuer ein Datum (spaetestes valid_from <= Datum) */
@@ -761,7 +857,7 @@ function ckw_fetch_api($tariff, DateTimeImmutable $now, &$error, $log = null)
 	for ($try = 1; $try <= 3; $try++) {
 		$body = ckw_http_get($url, 20, $error);
 		if ($body !== null) {
-			$data = json_decode($body, true);
+			$data = json_decode($body, true, 16);
 			if (is_array($data) && isset($data['prices']) && is_array($data['prices'])) {
 				$error = null;
 				return $data['prices'];
@@ -778,21 +874,29 @@ function ckw_fetch_api($tariff, DateTimeImmutable $now, &$error, $log = null)
 
 /**
  * Wandelt die Rohslots in eine Map Unix-Start => Komponenten (CHF/kWh exkl. MwSt).
+ * Fremddaten: nur Eintraege mit Zeitstempel im CKW-Format (z. B. 2026-10-24T00:15+02:00) auf dem
+ * Viertelstundenraster, hoechstens 7 Tage um $nowTs, und mit plausiblen Zahlen.
  */
-function ckw_parse_slots(array $prices)
+function ckw_parse_slots(array $prices, $nowTs = null)
 {
+	$nowTs = $nowTs === null ? time() : (int)$nowTs;
 	$slots = array();
 	foreach ($prices as $p) {
-		if (!isset($p['start_timestamp'])) {
+		if (!is_array($p) || !isset($p['start_timestamp']) || !is_string($p['start_timestamp'])
+			|| !preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/', $p['start_timestamp'])) {
 			continue;
 		}
 		try {
 			$ts = (new DateTimeImmutable($p['start_timestamp']))->getTimestamp();
-		} catch (Exception $e) {
+		} catch (Throwable $e) {
+			continue;
+		}
+		if ($ts % 900 !== 0 || abs($ts - $nowTs) > 7 * 86400) {
 			continue;
 		}
 		$get = function ($k) use ($p) {
-			return (isset($p[$k][0]['value']) && is_numeric($p[$k][0]['value'])) ? (float)$p[$k][0]['value'] : null;
+			$v = (isset($p[$k][0]['value']) && is_numeric($p[$k][0]['value'])) ? (float)$p[$k][0]['value'] : null;
+			return ($v !== null && abs($v) <= 10) ? $v : null;   // CHF/kWh; alles darueber ist ein Datenfehler
 		};
 		$slot = array(
 			'grid_usage'  => $get('grid_usage'),
@@ -807,6 +911,23 @@ function ckw_parse_slots(array $prices)
 	}
 	ksort($slots);
 	return $slots;
+}
+
+/** Gepruefte Slots wieder als Preisliste im API-Format (fuer den Cache: nie die Rohantwort speichern) */
+function ckw_slots_to_prices(array $slots)
+{
+	$tz = new DateTimeZone(CKW_TZ);
+	$out = array();
+	foreach ($slots as $ts => $s) {
+		$e = array('start_timestamp' => (new DateTimeImmutable('@' . $ts))->setTimezone($tz)->format('Y-m-d\TH:iP'));
+		foreach (array('grid_usage', 'grid', 'electricity', 'integrated') as $k) {
+			if ($s[$k] !== null) {
+				$e[$k] = array(array('value' => $s[$k]));
+			}
+		}
+		$out[] = $e;
+	}
+	return $out;
 }
 
 // ---------------------------------------------------------------------------
@@ -1539,7 +1660,9 @@ function ckw_mqtt_send_direct(array $messages, &$error)
 		$error = 'keine Broker-Daten in der LoxBerry-Konfiguration (MQTT-Widget prüfen)';
 		return false;
 	}
-	require_once 'phpMQTT/phpMQTT.php';
+	// absoluter Pfad: nie eine gleichnamige Datei aus dem aktuellen Arbeitsordner laden
+	$mqttLib = (defined('LBHOMEDIR') ? LBHOMEDIR : '/opt/loxberry') . '/libs/phplib/phpMQTT/phpMQTT.php';
+	require_once is_file($mqttLib) ? $mqttLib : 'phpMQTT/phpMQTT.php';
 	$port = !empty($cred['tls']) ? $cred['tls_brokerport'] : $cred['brokerport'];
 	$client = new Bluerhinos\phpMQTT($cred['brokerhost'], $port, 'ckwdyn_' . substr(uniqid(), -10));
 	if (!empty($cred['tls'])) {
@@ -1552,7 +1675,7 @@ function ckw_mqtt_send_direct(array $messages, &$error)
 	$user = !empty($cred['brokeruser']) ? $cred['brokeruser'] : null;
 	$pass = !empty($cred['brokerpass']) ? $cred['brokerpass'] : null;
 	if (!@$client->connect(true, null, $user, $pass)) {
-		$error = "Verbindung zu {$cred['brokerhost']}:$port fehlgeschlagen" . ($user ? " (Benutzer $user)" : ' (ohne Benutzer)');
+		$error = "Verbindung zu {$cred['brokerhost']}:$port fehlgeschlagen" . ($user ? ' (mit Anmeldung)' : ' (ohne Anmeldung)');
 		return false;
 	}
 	foreach ($messages as $topic => $payload) {
@@ -1581,7 +1704,7 @@ function ckw_mqtt_send_gateway(array $messages, &$error)
 	}
 	$url = "http://localhost:$port/admin/system/tools/mqtt.php";
 	$err = null;
-	if (ckw_http_get($url, 20, $err, '*/*', json_encode($items, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)) === null) {
+	if (ckw_http_get($url, 20, $err, '*/*', json_encode($items, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE)) === null) {
 		$error = "$url: $err";
 		return false;
 	}
@@ -1701,9 +1824,10 @@ class CkwLogBuffer
 		if (!isset(self::$SEVERITY[$level])) {
 			return;
 		}
-		$this->entries[] = array($level, (string)$args[0]);
+		$msg = ckw_log_clean($args[0]);
+		$this->entries[] = array($level, $msg);
 		if ($this->echo) {
-			fwrite(STDERR, "<$level> " . $args[0] . "\n");
+			fwrite(STDERR, "<$level> " . $msg . "\n");
 		}
 	}
 
@@ -1727,6 +1851,25 @@ class CkwLogBuffer
 	}
 }
 
+/**
+ * Macht eine Logzeile harmlos: Meldungen enthalten teils fremde Texte (MQTT-Werte, Antworten von
+ * Miniserver/CKW, Fehlermeldungen). Steuerzeichen und Zeilenumbrueche (gefaelschte Logzeilen) sowie
+ * spitze Klammern (HTML im LoxBerry-Logviewer) werden ersetzt, die Laenge ist begrenzt.
+ */
+/** Kuerzt einen fremden Text zeichengenau auf $len Zeichen und entfernt ungueltiges UTF-8 */
+function ckw_text_cut($s, $len)
+{
+	$s = function_exists('mb_scrub') ? mb_scrub((string)$s, 'UTF-8') : (string)$s;
+	return function_exists('mb_substr') ? mb_substr($s, 0, $len, 'UTF-8') : substr($s, 0, $len);
+}
+
+function ckw_log_clean($msg)
+{
+	$msg = preg_replace('/[\x00-\x1f\x7f]+/', ' ', (string)$msg);
+	$msg = strtr($msg, array('<' => '‹', '>' => '›'));
+	return strlen($msg) > 2000 ? substr($msg, 0, 2000) . ' …' : $msg;
+}
+
 function ckw_log($log, $level, $msg)
 {
 	if (is_object($log) && is_callable(array($log, $level))) {
@@ -1743,7 +1886,14 @@ function ckw_run(array $cfg, $log = null, ?DateTimeImmutable $now = null)
 	$now = $now ?: new DateTimeImmutable('now', new DateTimeZone(CKW_TZ));
 	$ok = true;
 
-	$tariffs = ckw_load_tariffs($cfg['tariffs_remote'], $log);
+	$nowTs = $now->getTimestamp();
+	try {
+		$tariffs = ckw_load_tariffs($cfg['tariffs_remote'], $log);
+	} catch (Throwable $e) {
+		// fehlerhafte Fremddaten duerfen den Preisabruf nie stoppen
+		ckw_log($log, 'ERR', 'Preistabellen nicht lesbar (' . $e->getMessage() . ') - verwende die mitgelieferte Tabelle.');
+		$tariffs = ckw_load_tariffs(false, $log, false);
+	}
 
 	// API abrufen, bei Fehler auf den letzten Abruf zurueckfallen
 	$err = null;
@@ -1751,14 +1901,18 @@ function ckw_run(array $cfg, $log = null, ?DateTimeImmutable $now = null)
 	if ($prices !== null) {
 		// Nur eine Antwort mit Preis fuer die laufende Viertelstunde zaehlt als Erfolg - sonst wuerde
 		// z. B. eine leere Liste bei einer CKW-Stoerung den guten Cache ueberschreiben
-		$nowTs = $now->getTimestamp();
-		$parsed = ckw_parse_slots($prices);
+		$parsed = ckw_parse_slots($prices, $nowTs);
 		if (!isset($parsed[$nowTs - ($nowTs % 900)])) {
 			$err = 'Antwort ohne Preis für die aktuelle Viertelstunde (' . count($parsed) . ' Slots)';
 			$prices = null;
+		} else {
+			$prices = ckw_slots_to_prices($parsed);   // nur gepruefte Werte weiterverwenden und speichern
 		}
 	}
 	$cache = ckw_read_json(ckw_cache_file());
+	if ($cache && (!isset($cache['tariff'], $cache['fetched'], $cache['prices']) || !is_array($cache['prices']))) {
+		$cache = null;   // unvollstaendiger Cache
+	}
 	$apiOk = $prices !== null;
 	if ($apiOk) {
 		// Preis-Cache (SD) nur schreiben, wenn sich die Preise geaendert haben - meist 1-2x pro Tag.
@@ -1792,7 +1946,7 @@ function ckw_run(array $cfg, $log = null, ?DateTimeImmutable $now = null)
 		'data_age_min' => $lastUpdate ? (int)floor((time() - $lastUpdate) / 60) : -1,
 	);
 
-	$raw = ckw_parse_slots($prices);
+	$raw = ckw_parse_slots($prices, $nowTs);
 	$res = ckw_calculate($raw, $cfg, $tariffs['data'], $now);
 	foreach ($res['meta']['warnings'] as $w) {
 		ckw_log($log, 'WARN', $w);
@@ -1840,9 +1994,9 @@ function ckw_run(array $cfg, $log = null, ?DateTimeImmutable $now = null)
 		foreach ($out['values'] + $out['texts'] as $k => $val) {
 			$msgs["$base/$k"] = $val;
 		}
-		$msgs["$base/data/json"] = json_encode(ckw_state_payload($res, $out, $cfg), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+		$msgs["$base/data/json"] = json_encode(ckw_state_payload($res, $out, $cfg), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 		if ($rulesInfo !== null) {
-			$msgs["$base/rules/json"] = json_encode(ckw_round_deep($rulesInfo['rules']), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+			$msgs["$base/rules/json"] = json_encode(ckw_round_deep($rulesInfo['rules']), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 		}
 		// Nicht mehr verwendete retained Topics (z. B. nach Aenderung der Auswahl) loeschen
 		if ($published && !empty($published['topics'])) {

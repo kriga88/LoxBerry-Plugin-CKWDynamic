@@ -1,13 +1,32 @@
 #!/bin/bash
 # Wird am Ende einer Deinstallation als root ausgefuehrt (nicht bei Updates).
 # Entfernt die retained MQTT-Werte des Plugins vom Broker, solange die Plugin-Daten noch vorhanden sind.
+# Sicherheit: Der Plugin-Code ist fuer den User loxberry beschreibbar und wird darum nie als root ausgefuehrt.
 # Argumente: <TEMPFOLDER> <NAME> <FOLDER> <VERSION> <BASEFOLDER>
 
 FETCH="REPLACELBPBINDIR/fetch.php"
+
+run_as_loxberry() {
+	if [ "$(id -un)" = "loxberry" ]; then
+		php "$FETCH" --uninstall
+	elif [ "$(id -u)" -eq 0 ]; then
+		if command -v runuser > /dev/null 2>&1; then
+			runuser -u loxberry -- php "$FETCH" --uninstall
+		else
+			# Pfad als Argument uebergeben, nicht in den Befehlstext einsetzen
+			su -s /bin/sh loxberry -c 'php "$0" --uninstall' "$FETCH"
+		fi
+	else
+		return 1
+	fi
+}
+
+# nicht im (unbekannten) Arbeitsordner des Installers laufen
+cd / || exit 0
 echo "<INFO> Entferne retained MQTT-Werte des Plugins ..."
-if su -s /bin/bash loxberry -c "php '$FETCH' --uninstall" > /dev/null 2>&1 || php "$FETCH" --uninstall > /dev/null 2>&1; then
+if [ -f "$FETCH" ] && run_as_loxberry > /dev/null 2>&1; then
 	echo "<OK> MQTT-Werte entfernt."
 else
-	echo "<WARNING> MQTT-Werte konnten nicht entfernt werden (Broker nicht erreichbar?)."
+	echo "<WARNING> MQTT-Werte konnten nicht entfernt werden (Broker nicht erreichbar?). Sie lassen sich im MQTT-Gateway von Hand löschen."
 fi
 exit 0

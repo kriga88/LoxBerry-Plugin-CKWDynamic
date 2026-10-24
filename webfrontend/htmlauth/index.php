@@ -10,7 +10,79 @@ require_once "$lbpbindir/ckw_lib.php";
 
 function h($s)
 {
-	return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
+	// ENT_SUBSTITUTE: ungueltiges UTF-8 (z. B. aus fremden Daten) ergibt sonst einen leeren Text
+	return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+/** Wert als JavaScript-Literal in einem <script>-Block (JSON, HTML-Sonderzeichen maskiert) */
+function js($v)
+{
+	return json_encode($v, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE);
+}
+
+// ---------------------------------------------------------------------------
+// Sicherheit: Header, CSRF-Schutz, Request-Parameter
+// ---------------------------------------------------------------------------
+header('X-Frame-Options: SAMEORIGIN');                        // kein Einbetten in fremde Seiten (Clickjacking)
+header("Content-Security-Policy: frame-ancestors 'self'");
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: same-origin');
+header('Cache-Control: no-store');                            // Seiten mit Token nicht zwischenspeichern
+
+/**
+ * CSRF-Token: Der Browser sendet die LoxBerry-Anmeldung (Basic Auth) auch bei Formularen fremder Webseiten mit.
+ * Darum braucht jede Aktion ein Token, das nur diese Seite kennt (HMAC mit einem zufaelligen Schluessel
+ * der Installation im Datenordner, nur fuer den User loxberry lesbar).
+ */
+function ckw_csrf_key(&$broken = null)
+{
+	static $key = null, $fail = false;
+	if ($key === null) {
+		$file = ckw_data_dir() . '/csrf.key';
+		$key = is_file($file) ? trim((string)@file_get_contents($file)) : '';
+		if (!preg_match('/^[0-9a-f]{64}$/', $key)) {
+			// neuer Schluessel: atomar schreiben (Temp-Datei + rename), nur fuer den Besitzer lesbar
+			$key = bin2hex(random_bytes(32));
+			$tmp = $file . '.' . getmypid() . '.tmp';
+			$old = umask(0077);
+			$ok = @file_put_contents($tmp, $key, LOCK_EX) !== false && @rename($tmp, $file);
+			umask($old);
+			@unlink($tmp);
+			// nicht speicherbar -> jede Anfrage haette einen anderen Schluessel; Aktionen bleiben gesperrt
+			$fail = !$ok || trim((string)@file_get_contents($file)) !== $key;
+		}
+	}
+	$broken = $fail;
+	return $key;
+}
+
+function ckw_csrf_broken()
+{
+	$broken = false;
+	ckw_csrf_key($broken);
+	return $broken;
+}
+
+function ckw_csrf_token()
+{
+	return hash_hmac('sha256', 'ckwdynamic-webui', ckw_csrf_key());
+}
+
+function ckw_csrf_field()
+{
+	return '<input type="hidden" name="csrf" value="' . h(ckw_csrf_token()) . '">';
+}
+
+function ckw_csrf_ok()
+{
+	return !ckw_csrf_broken() && isset($_POST['csrf']) && is_string($_POST['csrf']) && hash_equals(ckw_csrf_token(), $_POST['csrf']);
+}
+
+/** Request-Parameter als Text ('' wenn er fehlt oder kein Text ist, z. B. bei ?d[]=x) */
+function ckw_req($key, $src = null)
+{
+	$src = $src === null ? $_GET : $src;
+	return (isset($src[$key]) && is_string($src[$key])) ? $src[$key] : '';
 }
 
 $ckwcfg = ckw_load_config();
@@ -22,7 +94,7 @@ $today = ckw_local_time(time(), 'Y-m-d');   // Schweizer Datum (PHP-Standardzeit
 // ---------------------------------------------------------------------------
 // Download Loxone-Vorlage (Virtueller UDP-Eingang)
 // ---------------------------------------------------------------------------
-if (isset($_GET['download']) && $_GET['download'] === 'udp') {
+if (ckw_req('download') === 'udp') {
 	$state = ckw_read_json(ckw_state_file());
 	$keys = ($state && isset($state['values'])) ? array_keys($state['values']) : array();
 	$xml = ckw_udp_template_xml($keys, $ckwcfg['udp_port'], $state && isset($state['unit']) ? $state['unit'] : 'CHF/kWh');
@@ -35,15 +107,15 @@ if (isset($_GET['download']) && $_GET['download'] === 'udp') {
 // ---------------------------------------------------------------------------
 // Statistik: gewaehlter Zeitraum (Tag / Monat / Jahr)
 // ---------------------------------------------------------------------------
-$statView = isset($_GET['view']) && in_array($_GET['view'], array('day', 'month', 'year', 'setup'), true) ? $_GET['view'] : 'day';
+$statView = in_array(ckw_req('view'), array('day', 'month', 'year', 'setup'), true) ? ckw_req('view') : 'day';
 $tzCh = new DateTimeZone(CKW_TZ);
 $statRef = new DateTimeImmutable('now', $tzCh);
-if ($statView === 'day' && isset($_GET['d']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['d'])) {
-	$statRef = DateTimeImmutable::createFromFormat('!Y-m-d', $_GET['d'], $tzCh) ?: $statRef;
-} elseif ($statView === 'month' && isset($_GET['m']) && preg_match('/^\d{4}-\d{2}$/', $_GET['m'])) {
-	$statRef = DateTimeImmutable::createFromFormat('!Y-m-d', $_GET['m'] . '-01', $tzCh) ?: $statRef;
-} elseif ($statView === 'year' && isset($_GET['y']) && preg_match('/^\d{4}$/', $_GET['y'])) {
-	$statRef = DateTimeImmutable::createFromFormat('!Y-m-d', $_GET['y'] . '-01-01', $tzCh) ?: $statRef;
+if ($statView === 'day' && preg_match('/^\d{4}-\d{2}-\d{2}$/', ckw_req('d'))) {
+	$statRef = DateTimeImmutable::createFromFormat('!Y-m-d', ckw_req('d'), $tzCh) ?: $statRef;
+} elseif ($statView === 'month' && preg_match('/^\d{4}-\d{2}$/', ckw_req('m'))) {
+	$statRef = DateTimeImmutable::createFromFormat('!Y-m-d', ckw_req('m') . '-01', $tzCh) ?: $statRef;
+} elseif ($statView === 'year' && preg_match('/^\d{4}$/', ckw_req('y'))) {
+	$statRef = DateTimeImmutable::createFromFormat('!Y-m-d', ckw_req('y') . '-01-01', $tzCh) ?: $statRef;
 }
 $statRef = $statRef->setTime(12, 0, 0);   // Mitte des Tages: robust bei Zeitumstellung
 
@@ -55,7 +127,7 @@ if (isset($_GET['csv']) && in_array($statView, array('day', 'month', 'year'), tr
 	header('Content-Disposition: attachment; filename="ckw_statistik_' . $name . '.csv"');
 	try {
 		echo "\xEF\xBB\xBF" . ckw_stats_csv($a, $z);   // BOM fuer Excel (Umlaute)
-	} catch (Exception $e) {
+	} catch (Throwable $e) {
 		echo 'Fehler: ' . $e->getMessage();
 	}
 	exit;
@@ -64,14 +136,19 @@ if (isset($_GET['csv']) && in_array($statView, array('day', 'month', 'year'), tr
 // Vorschau einer Schaltregel (JSON, aus dem Regel-Editor)
 if (isset($_GET['rules_preview'])) {
 	header('Content-Type: application/json; charset=utf-8');
+	if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !ckw_csrf_ok()) {
+		http_response_code(403);
+		echo json_encode(array('error' => 'Sicherheitsprüfung fehlgeschlagen - bitte Seite neu laden.'), JSON_INVALID_UTF8_SUBSTITUTE);
+		exit;
+	}
 	$rerr = array();
 	$rin = isset($_POST['rule']) && is_array($_POST['rule']) ? $_POST['rule'] : array();
 	$rin['block'] = isset($rin['block']) ? '1' : '0';
-	$rule = ckw_sanitize_rule($rin, $rerr);
 	try {
-		echo json_encode(ckw_rule_preview_data($rule, $ckwcfg, time()));
+		$rule = ckw_sanitize_rule($rin, $rerr);
+		echo json_encode(ckw_rule_preview_data($rule, $ckwcfg, time()), JSON_INVALID_UTF8_SUBSTITUTE);
 	} catch (Throwable $e) {
-		echo json_encode(array('error' => 'Vorschau nicht möglich: ' . $e->getMessage()));
+		echo json_encode(array('error' => 'Vorschau nicht möglich: ' . $e->getMessage()), JSON_INVALID_UTF8_SUBSTITUTE);
 	}
 	exit;
 }
@@ -79,13 +156,13 @@ if (isset($_GET['rules_preview'])) {
 // ---------------------------------------------------------------------------
 // Formularaktionen
 // ---------------------------------------------------------------------------
-$page = isset($_GET['page']) ? $_GET['page'] : 'settings';
-$ruleView = isset($_GET['view']) && $_GET['view'] === 'edit' ? 'edit' : 'list';
-$ruleIdx = isset($_GET['idx']) && ctype_digit((string)$_GET['idx']) && isset($ckwcfg['rules'][(int)$_GET['idx']]) ? (int)$_GET['idx'] : null;
+$page = in_array(ckw_req('page'), array('settings', 'prices', 'stats', 'rules', 'loxone'), true) ? ckw_req('page') : 'settings';
+$ruleView = ckw_req('view') === 'edit' ? 'edit' : 'list';
+$ruleIdx = ctype_digit(ckw_req('idx')) && isset($ckwcfg['rules'][(int)ckw_req('idx')]) ? (int)ckw_req('idx') : null;
 $ruleEdit = null;
 if ($ruleView === 'edit') {
 	$tpls = ckw_rule_templates();
-	$copyIdx = isset($_GET['copy']) && ctype_digit((string)$_GET['copy']) && isset($ckwcfg['rules'][(int)$_GET['copy']]) ? (int)$_GET['copy'] : null;
+	$copyIdx = ctype_digit(ckw_req('copy')) && isset($ckwcfg['rules'][(int)ckw_req('copy')]) ? (int)ckw_req('copy') : null;
 	if ($ruleIdx !== null) {
 		$ruleEdit = $ckwcfg['rules'][$ruleIdx];
 	} elseif ($copyIdx !== null) {
@@ -95,7 +172,7 @@ if ($ruleView === 'edit') {
 		$ruleEdit['name'] = $base . ' (Kopie)';
 		$ruleEdit['key'] = '';
 	} else {
-		$tk = isset($_GET['tpl']) && isset($tpls[$_GET['tpl']]) ? $_GET['tpl'] : 'leer';
+		$tk = isset($tpls[ckw_req('tpl')]) ? ckw_req('tpl') : 'leer';
 		$tmpErr = array();
 		$ruleEdit = ckw_sanitize_rule($tpls[$tk]['rule'], $tmpErr);
 	}
@@ -103,9 +180,45 @@ if ($ruleView === 'edit') {
 $messages = array();
 $errors = array();
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-	if ($_POST['action'] === 'save') {
-		$in = array_merge($ckwcfg, $_POST);   // Felder anderer Seiten (Statistik) bleiben erhalten
+// Meldungen nach erfolgreichen Aktionen: Die Aktion leitet auf eine GET-Seite weiter (Post/Redirect/Get),
+// damit ein Neuladen (F5) sie nicht wiederholt. Uebergeben wird nur ein Code, nie ein Text.
+$doneMsgs = array(
+	'settings'     => array('ok', 'Einstellungen gespeichert. Die Preise werden im Hintergrund neu abgerufen und gesendet.'),
+	'stats'        => array('ok', 'Einstellungen der Statistik gespeichert.'),
+	'stats_on'     => array('ok', 'Einstellungen der Statistik gespeichert. Ab der nächsten Viertelstunde wird der Verbrauch erfasst.'),
+	'stats_reset'  => array('ok', 'Statistik zurückgesetzt. Die Erfassung beginnt ab der nächsten Viertelstunde neu.'),
+	'rule_saved'   => array('ok', 'Regel gespeichert. Die Ausgänge werden im Hintergrund neu berechnet und gesendet.'),
+	'rule_deleted' => array('ok', 'Regel gelöscht. Die Ausgänge werden im Hintergrund neu berechnet und gesendet.'),
+	'rule_on'      => array('ok', 'Regel aktiviert. Die Ausgänge werden im Hintergrund neu berechnet und gesendet.'),
+	'rule_off'     => array('ok', 'Regel deaktiviert. Die Ausgänge werden im Hintergrund neu berechnet und gesendet.'),
+	'fetch_ok'     => array('ok', 'Preise erfolgreich abgerufen und gesendet.'),
+	'fetch_busy'   => array('err', 'Es läuft gerade schon ein Abruf (Cronjob oder nach dem Speichern) - bitte in einer Minute erneut versuchen.'),
+	'fetch_err'    => array('err', 'Abruf mit Fehlern beendet - Details im Log.'),
+);
+if (isset($doneMsgs[ckw_req('done')])) {
+	list($type, $text) = $doneMsgs[ckw_req('done')];
+	if ($type === 'ok') {
+		$messages[] = $text;
+	} else {
+		$errors[] = $text;
+	}
+}
+$redirect = null;
+
+$postAction = $_SERVER['REQUEST_METHOD'] === 'POST' ? ckw_req('action', $_POST) : '';
+if ($postAction !== '' && !ckw_csrf_ok()) {
+	$errors[] = ckw_csrf_broken()
+		? 'Sicherheitsschlüssel kann nicht gespeichert werden (Datenordner des Plugins nicht beschreibbar) - Aktionen sind gesperrt.'
+		: 'Sicherheitsprüfung fehlgeschlagen (Formular veraltet oder von einer fremden Seite gesendet). Bitte die Seite neu laden und erneut versuchen.';
+	$postAction = '';
+}
+if ($postAction !== '') {
+	if ($postAction === 'save') {
+		// nur die Felder dieses Formulars uebernehmen (Statistik und Regeln haben eigene Formulare)
+		$formKeys = array('tariff', 'product', 'custom_energy_rp', 'extra_rp', 'municipality', 'vat_enabled', 'vat_rate', 'unit',
+			'components', 'series_rel', 'series_abs', 'series_tmr', 'fill_mode', 'cheap_hours', 'formula_enabled', 'tariffs_remote',
+			'mqtt_enabled', 'mqtt_topic', 'udp_enabled', 'udp_msnr', 'udp_port', 'udp_prefix');
+		$in = array_merge($ckwcfg, array_intersect_key($_POST, array_flip($formKeys)));
 		foreach (array('vat_enabled', 'series_rel', 'series_abs', 'series_tmr', 'mqtt_enabled', 'udp_enabled', 'tariffs_remote', 'formula_enabled') as $cb) {
 			$in[$cb] = isset($_POST[$cb]) ? '1' : '0';
 		}
@@ -118,14 +231,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 			if (ckw_save_config($new)) {
 				$ckwcfg = $new;
 				exec("$fetchCmd > /dev/null 2>&1 &");
-				$messages[] = 'Einstellungen gespeichert. Die Preise werden im Hintergrund neu abgerufen und gesendet.';
+				$redirect = 'page=settings&done=settings';
 			} else {
 				$errors[] = 'Einstellungen konnten nicht gespeichert werden (Schreibrechte?).';
 			}
 		} else {
 			$ckwcfg = $new;
 		}
-	} elseif ($_POST['action'] === 'stats_save' || $_POST['action'] === 'meter_test') {
+	} elseif ($postAction === 'stats_save' || $postAction === 'meter_test') {
 		// Statistik -> Einrichtung: nur die Zaehler-Felder uebernehmen
 		$in = $ckwcfg;
 		foreach (array('meter_source', 'meter_msnr', 'meter_name', 'meter_output', 'meter_topic', 'meter_unit', 'meter_max_kwh', 'power_rate') as $f) {
@@ -135,7 +248,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 		}
 		$new = ckw_sanitize_config($in, $errors);
 		$ckwcfg = $new;
-		if ($_POST['action'] === 'meter_test') {
+		if ($postAction === 'meter_test') {
 			$errors = array();
 			$merr = null;
 			$mval = $new['meter_source'] === 'off' ? null : ckw_stats_read_meter($new, $merr);
@@ -147,16 +260,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 		} elseif (!$errors) {
 			if (ckw_save_config($new)) {
 				exec("$fetchCmd > /dev/null 2>&1 &");
-				$messages[] = 'Einstellungen der Statistik gespeichert.' . ($new['meter_source'] !== 'off' ? ' Ab der nächsten Viertelstunde wird der Verbrauch erfasst.' : '');
+				$redirect = 'page=stats&view=setup&done=' . ($new['meter_source'] !== 'off' ? 'stats_on' : 'stats');
 			} else {
 				$errors[] = 'Einstellungen konnten nicht gespeichert werden (Schreibrechte?).';
 			}
 		}
-	} elseif (in_array($_POST['action'], array('rule_save', 'rule_delete', 'rule_toggle'), true)) {
+	} elseif (in_array($postAction, array('rule_save', 'rule_delete', 'rule_toggle'), true)) {
 		$rules = $ckwcfg['rules'];
-		$i = isset($_POST['idx']) && ctype_digit((string)$_POST['idx']) && isset($rules[(int)$_POST['idx']]) ? (int)$_POST['idx'] : null;
+		// Regel ueber ihren (eindeutigen) Kurznamen finden, nicht ueber die Position: sonst traefe ein
+		// erneut gesendetes Formular oder ein zweiter Tab nach einer Loeschung die falsche Regel
+		$rkey = ckw_req('rkey', $_POST);
+		$i = null;
+		foreach ($rules as $n => $r0) {
+			if ($rkey !== '' && $r0['key'] === $rkey) {
+				$i = $n;
+				break;
+			}
+		}
 		$done = '';
-		if ($_POST['action'] === 'rule_save') {
+		if ($rkey !== '' && $i === null) {
+			$errors[] = 'Diese Regel gibt es nicht mehr (z. B. in einem anderen Tab gelöscht oder umbenannt). Bitte die Seite neu laden.';
+		} elseif ($postAction === 'rule_save') {
 			$rin = isset($_POST['rule']) && is_array($_POST['rule']) ? $_POST['rule'] : array();
 			$rin['block'] = isset($rin['block']) ? '1' : '0';
 			if ($i === null) {
@@ -164,16 +288,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 			} else {
 				$rules[$i] = $rin;
 			}
-			$done = 'Regel gespeichert.';
-		} elseif ($i !== null && $_POST['action'] === 'rule_delete') {
+			$done = 'rule_saved';
+		} elseif ($i !== null && $postAction === 'rule_delete') {
 			array_splice($rules, $i, 1);
-			$done = 'Regel gelöscht.';
+			$done = 'rule_deleted';
 		} elseif ($i !== null) {
 			$rules[$i]['enabled'] = !$rules[$i]['enabled'];
-			$done = $rules[$i]['enabled'] ? 'Regel aktiviert.' : 'Regel deaktiviert.';
+			$done = $rules[$i]['enabled'] ? 'rule_on' : 'rule_off';
+		} else {
+			$errors[] = 'Keine Regel angegeben.';
 		}
-		$new = ckw_sanitize_config(array_merge($ckwcfg, array('rules' => $rules)), $errors);
-		if (!$errors && $_POST['action'] === 'rule_save') {
+		if (!$errors) {
+			$new = ckw_sanitize_config(array_merge($ckwcfg, array('rules' => $rules)), $errors);
+		}
+		if (!$errors && $postAction === 'rule_save') {
 			// feste Preise nur innerhalb des CKW-Preisbands (Total wie eingestellt)
 			$saved = $new['rules'][$i === null ? count($new['rules']) - 1 : $i];
 			$nowSlot = time() - (time() % 900);
@@ -205,36 +333,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 			if (ckw_save_config($new)) {
 				$ckwcfg = $new;
 				exec("$fetchCmd > /dev/null 2>&1 &");
-				$messages[] = $done . ' Die Ausgänge werden im Hintergrund neu berechnet und gesendet.';
+				$redirect = 'page=rules&done=' . $done;
 			} else {
 				$errors[] = 'Einstellungen konnten nicht gespeichert werden (Schreibrechte?).';
 			}
-		} elseif ($errors && $_POST['action'] === 'rule_save') {
+		} elseif ($errors && $postAction === 'rule_save' && isset($rin)) {
 			// Formular mit den Eingaben erneut zeigen
 			$ruleView = 'edit';
 			$ruleIdx = $i;
 			$tmpErr = array();
 			$ruleEdit = ckw_sanitize_rule($rin, $tmpErr);
 		}
-	} elseif ($_POST['action'] === 'stats_reset') {
+	} elseif ($postAction === 'stats_reset') {
 		try {
 			ckw_stats_reset();
-			$messages[] = 'Statistik zurückgesetzt. Die Erfassung beginnt ab der nächsten Viertelstunde neu.';
-		} catch (Exception $e) {
+			$redirect = 'page=stats&view=setup&done=stats_reset';
+		} catch (Throwable $e) {
 			$errors[] = 'Statistik konnte nicht zurückgesetzt werden: ' . $e->getMessage();
 		}
-	} elseif ($_POST['action'] === 'fetch') {
+	} elseif ($postAction === 'fetch') {
 		$output = array();
 		$rc = 0;
 		exec("$fetchCmd 2>&1", $output, $rc);
-		if ($rc === 0) {
-			$messages[] = 'Preise erfolgreich abgerufen und gesendet.';
-		} elseif ($rc === 2) {
-			$errors[] = 'Es läuft gerade schon ein Abruf (Cronjob oder nach dem Speichern) - bitte in einer Minute erneut versuchen.';
-		} else {
-			$errors[] = 'Abruf mit Fehlern beendet - Details im Log.';
-		}
+		$redirect = 'page=' . $page . '&done=' . ($rc === 0 ? 'fetch_ok' : ($rc === 2 ? 'fetch_busy' : 'fetch_err'));
 	}
+}
+if ($redirect !== null) {
+	header('Location: index.php?' . $redirect, true, 303);
+	exit;
 }
 
 $state = ckw_read_json(ckw_state_file());
@@ -319,6 +445,7 @@ if ($state && isset($state['run'])) {
 ?>
 
 <form method="post" action="index.php?page=<?= h($page) ?>" style="display:inline" data-ajax="false">
+	<?= ckw_csrf_field() ?>
 	<input type="hidden" name="action" value="fetch">
 	<button type="submit" data-inline="true" data-mini="true" data-icon="refresh">Jetzt abrufen</button>
 </form>
@@ -328,6 +455,7 @@ if ($state && isset($state['run'])) {
 <!-- EINSTELLUNGEN                                                        -->
 <!-- =================================================================== -->
 <form method="post" action="index.php?page=settings" data-ajax="false">
+	<?= ckw_csrf_field() ?>
 	<input type="hidden" name="action" value="save">
 
 	<h3 class="ckw-section">Tarif &amp; Stromprodukt</h3>
@@ -494,7 +622,9 @@ if ($state && isset($state['run'])) {
 	<?php
 	$rel = $state['series']['total']['rel'];
 	$known = array_filter($rel, function ($v) { return $v !== null; });
-	$maxv = $known ? max($known) : 1;
+	// Balkenbreite relativ zum groessten Betrag (Preise koennen 0 oder durch Zusatzkosten negativ sein)
+	$maxv = $known ? max(array_map('abs', $known)) : 0;
+	$maxv = $maxv > 0 ? $maxv : 1;
 	$cheap = $state['cheap'];
 	?>
 	<?php $fx = !empty($state['fixed']) ? $state['fixed'] : null; ?>
@@ -509,7 +639,7 @@ if ($state && isset($state['run'])) {
 		<?php foreach ($rel as $i => $v):
 			$isCheap = $cheap && $i >= $cheap['start_off'] && $i < $cheap['start_off'] + $ckwcfg['cheap_hours'];
 			$fillv = isset($state['fill']['total']['rel'][$i]) ? $state['fill']['total']['rel'][$i] : null;
-			$w = $v === null ? ($fillv !== null ? max(2, min(100, round($fillv / $maxv * 100))) : 100) : max(2, round($v / $maxv * 100));
+			$w = $v === null ? ($fillv !== null ? max(2, min(100, round(abs($fillv) / $maxv * 100))) : 100) : max(2, min(100, round(abs($v) / $maxv * 100)));
 		?>
 			<tr>
 				<td>+<?= $i ?></td>
@@ -558,6 +688,7 @@ $sub = array('day' => 'Tag', 'month' => 'Monat', 'year' => 'Jahr', 'setup' => 'E
 	<p class="ckw-hint">Das Plugin liest bei jedem Lauf (alle 15 Minuten) den Zählerstand. Die Differenz zum letzten Stand ist der Verbrauch der Viertelstunde und wird mit dem Preis genau dieser Viertelstunde bewertet (Total wie unter Einstellungen, inkl. MwSt falls aktiviert).</p>
 
 	<form method="post" action="index.php?page=stats&amp;view=setup" data-ajax="false">
+		<?= ckw_csrf_field() ?>
 		<input type="hidden" name="action" id="stats_action" value="stats_save">
 		<div class="ui-field-contain">
 			<label for="meter_source">Quelle</label>
@@ -612,6 +743,7 @@ $sub = array('day' => 'Tag', 'month' => 'Monat', 'year' => 'Jahr', 'setup' => 'E
 	</form>
 	<h4>Statistik zurücksetzen</h4>
 	<form method="post" action="index.php?page=stats&amp;view=setup" data-ajax="false" onsubmit="return confirm('Alle erfassten Verbrauchsdaten löschen?');">
+		<?= ckw_csrf_field() ?>
 		<input type="hidden" name="action" value="stats_reset">
 		<button type="submit" data-inline="true" data-mini="true" data-icon="delete">Verbrauchsdaten löschen</button>
 	</form>
@@ -686,7 +818,7 @@ $sub = array('day' => 'Tag', 'month' => 'Monat', 'year' => 'Jahr', 'setup' => 'E
 			}
 		}
 		$statErr = null;
-	} catch (Exception $e) {
+	} catch (Throwable $e) {
 		$statErr = $e->getMessage();
 	}
 ?>
@@ -740,7 +872,7 @@ $sub = array('day' => 'Tag', 'month' => 'Monat', 'year' => 'Jahr', 'setup' => 'E
 		<script src="js/chart.umd.min.js"></script>
 		<script>
 		(function () {
-			var d = <?= json_encode($chart) ?>;
+			var d = <?= js($chart) ?>;
 			var day = <?= $statView === 'day' ? 'true' : 'false' ?>;
 			new Chart(document.getElementById('ckwStatChart'), {
 				data: {
@@ -756,7 +888,7 @@ $sub = array('day' => 'Tag', 'month' => 'Monat', 'year' => 'Jahr', 'setup' => 'E
 					scales: {
 						x: { ticks: { autoSkip: true, maxTicksLimit: day ? 24 : 31 } },
 						e: { position: 'left', beginAtZero: true, title: { display: true, text: 'kWh' } },
-						p: { position: 'right', grace: '10%', grid: { drawOnChartArea: false }, title: { display: true, text: <?= json_encode($punit) ?> } }
+						p: { position: 'right', grace: '10%', grid: { drawOnChartArea: false }, title: { display: true, text: <?= js($punit) ?> } }
 					}
 				}
 			});
@@ -831,11 +963,13 @@ global $CKW_RULE_STEP_MODES;
 							<a data-role="button" data-inline="true" data-mini="true" data-icon="plus" data-iconpos="notext" data-ajax="false" title="Kopieren" href="index.php?page=rules&amp;view=edit&amp;copy=<?= $i ?>">Kopieren</a>
 						<?php endif; ?>
 						<form method="post" action="index.php?page=rules" data-ajax="false" style="display:inline">
-							<input type="hidden" name="action" value="rule_toggle"><input type="hidden" name="idx" value="<?= $i ?>">
+							<?= ckw_csrf_field() ?>
+							<input type="hidden" name="action" value="rule_toggle"><input type="hidden" name="rkey" value="<?= h($r['key']) ?>">
 							<button type="submit" data-inline="true" data-mini="true" data-icon="<?= $r['enabled'] ? 'minus' : 'plus' ?>" data-iconpos="notext"><?= $r['enabled'] ? 'Deaktivieren' : 'Aktivieren' ?></button>
 						</form>
 						<form method="post" action="index.php?page=rules" data-ajax="false" style="display:inline" onsubmit="return confirm('Regel löschen?');">
-							<input type="hidden" name="action" value="rule_delete"><input type="hidden" name="idx" value="<?= $i ?>">
+							<?= ckw_csrf_field() ?>
+							<input type="hidden" name="action" value="rule_delete"><input type="hidden" name="rkey" value="<?= h($r['key']) ?>">
 							<button type="submit" data-inline="true" data-mini="true" data-icon="delete" data-iconpos="notext">Löschen</button>
 						</form>
 					</td>
@@ -882,8 +1016,9 @@ global $CKW_RULE_STEP_MODES;
 		<p class="ckw-hint">Kopie von „<?= h($ckwcfg['rules'][$copyIdx]['name']) ?>“ – erst mit Speichern angelegt. Name und Kurzname anpassen; der Kurzname wird sonst automatisch aus dem Namen gebildet und eindeutig gemacht.</p>
 	<?php endif; ?>
 	<form method="post" action="index.php?page=rules" data-ajax="false" id="ruleForm">
+		<?= ckw_csrf_field() ?>
 		<input type="hidden" name="action" value="rule_save">
-		<input type="hidden" name="idx" value="<?= $ruleIdx === null ? '' : (int)$ruleIdx ?>">
+		<input type="hidden" name="rkey" value="<?= $ruleIdx === null ? '' : h($ckwcfg['rules'][$ruleIdx]['key']) ?>">
 		<input type="hidden" name="rule[enabled]" value="<?= $r['enabled'] ? '1' : '0' ?>">
 
 		<div class="ui-field-contain"><label for="r_name">Name</label><?= $inp('name', $r['name'], 'text', 'maxlength="40"') ?></div>
@@ -994,7 +1129,7 @@ global $CKW_RULE_STEP_MODES;
 				e.style.display = e.getAttribute('data-analog').split(' ').indexOf(a) >= 0 ? '' : 'none';
 			});
 		}
-		var ref = null, dec = <?= $ckwcfg['unit'] === 'rp' ? 2 : 4 ?>, unit = <?= json_encode($punit) ?>;
+		var ref = null, dec = <?= $ckwcfg['unit'] === 'rp' ? 2 : 4 ?>, unit = <?= js($punit) ?>;
 		var pctModes = ['band_min', 'band_max', 'rank'];
 		function priceFor(mode, v) {
 			if (!ref || v === '' || isNaN(v)) return null;
@@ -1110,7 +1245,7 @@ global $CKW_RULE_STEP_MODES;
 					var hm = function (m) { return Math.floor(m / 60) + ':' + ('0' + m % 60).slice(-2) + ' h'; };
 					var tot = s.on_min + s.done_min;
 					var txt = (s['in'] ? 'Aktuelles Zeitfenster ' : 'Nächstes Zeitfenster ') + s.window + ': Ein-Zeit ' + hm(tot) + ' (' + (tot / 60).toFixed(2) + ' h)' + (s.done_min ? ', davon ' + hm(s.done_min) + ' gelaufen' : '');
-					if (s.limit !== null) txt += ', Grenze ' + s.limit.toFixed(<?= $ckwcfg['unit'] === 'rp' ? 2 : 4 ?>) + ' <?= h($punit) ?>';
+					if (s.limit !== null) txt += ', Grenze ' + s.limit.toFixed(<?= $ckwcfg['unit'] === 'rp' ? 2 : 4 ?>) + ' ' + unit;
 					if (s.cost_chf !== null) txt += ', geschätzte Kosten im Fenster ' + s.cost_chf.toFixed(2) + ' CHF';
 					document.getElementById('ruleSummary').textContent = txt + '.';
 					var pmax = Math.max.apply(null, d.price.filter(function (x) { return x !== null; }).concat([0]));
@@ -1128,7 +1263,7 @@ global $CKW_RULE_STEP_MODES;
 						responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
 						scales: {
 							x: { stacked: true, ticks: { autoSkip: true, maxTicksLimit: 16 } },
-							p: { position: 'left', grace: '10%', title: { display: true, text: '<?= h($punit) ?>' } },
+							p: { position: 'left', grace: '10%', title: { display: true, text: unit } },
 							v: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Wert' } },
 							o: { display: false, min: 0, max: 1, stacked: false }
 						}

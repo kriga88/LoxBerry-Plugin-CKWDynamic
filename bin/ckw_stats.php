@@ -134,7 +134,7 @@ function ckw_stats_read_meter(array $cfg, &$error)
 	}
 	$v = ckw_stats_parse_number($raw);
 	if ($v === null) {
-		$error = 'Wert "' . substr((string)$raw, 0, 40) . '" ist keine Zahl.';
+		$error = 'Wert "' . ckw_text_cut($raw, 40) . '" ist keine Zahl.';
 		return null;
 	}
 	if ($cfg['meter_unit'] === 'wh') {
@@ -183,38 +183,53 @@ function ckw_stats_slot_price(array $b, $ts)
 	return $row ? array($row['total'] !== null ? (float)$row['total'] : null, $row['fixed'] !== null ? (float)$row['fixed'] : null) : array(null, null);
 }
 
-/** Schreibt alle abgeschlossenen Eintraege des Puffers in einer Transaktion in die Datenbank. */
+/**
+ * Schreibt alle abgeschlossenen Eintraege des Puffers in einer Transaktion in die Datenbank.
+ * Der Puffer wird erst nach erfolgreichem Commit gekuerzt - bei einem Fehler (SD voll, I/O) bleibt
+ * alles im Puffer und wird beim naechsten Mal erneut geschrieben.
+ */
 function ckw_stats_flush(array &$b, $untilTs = null)
 {
 	$untilTs = $untilTs === null ? PHP_INT_MAX : $untilTs;
 	$db = ckw_stats_db();
+	$done = array('usage' => array(), 'readings' => array(), 'prices' => array());
 	$db->beginTransaction();
-	$pu = $db->prepare('INSERT OR REPLACE INTO usage (ts, kwh, cost, cost_fixed, estimated) VALUES (?, ?, ?, ?, ?)');
-	$pr = $db->prepare('INSERT OR REPLACE INTO readings (ts, meter) VALUES (?, ?)');
-	$pp = $db->prepare('INSERT OR REPLACE INTO prices (ts, total, fixed) VALUES (?, ?, ?)');
-	$n = 0;
-	foreach ($b['usage'] as $ts => $u) {
-		if ($ts < $untilTs) {
-			$pu->execute(array((int)$ts, $u[0], $u[1], $u[2], $u[3]));
-			unset($b['usage'][$ts]);
-			$n++;
+	try {
+		$pu = $db->prepare('INSERT OR REPLACE INTO usage (ts, kwh, cost, cost_fixed, estimated) VALUES (?, ?, ?, ?, ?)');
+		$pr = $db->prepare('INSERT OR REPLACE INTO readings (ts, meter) VALUES (?, ?)');
+		$pp = $db->prepare('INSERT OR REPLACE INTO prices (ts, total, fixed) VALUES (?, ?, ?)');
+		foreach ($b['usage'] as $ts => $u) {
+			if ($ts < $untilTs) {
+				$pu->execute(array((int)$ts, $u[0], $u[1], $u[2], $u[3]));
+				$done['usage'][] = $ts;
+			}
+		}
+		foreach ($b['readings'] as $ts => $m) {
+			if ($ts <= $untilTs) {
+				$pr->execute(array((int)$ts, $m));
+				$done['readings'][] = $ts;
+			}
+		}
+		// Preise vergangener Viertelstunden archivieren (kuenftige bleiben im Puffer, sie koennen sich noch aendern)
+		foreach ($b['prices'] as $ts => $p) {
+			if ($ts < $untilTs) {
+				$pp->execute(array((int)$ts, $p[0], $p[1]));
+				$done['prices'][] = $ts;
+			}
+		}
+		$db->commit();
+	} catch (Throwable $e) {
+		if ($db->inTransaction()) {
+			$db->rollBack();
+		}
+		throw $e;
+	}
+	foreach ($done as $part => $list) {
+		foreach ($list as $ts) {
+			unset($b[$part][$ts]);
 		}
 	}
-	foreach ($b['readings'] as $ts => $m) {
-		if ($ts <= $untilTs) {
-			$pr->execute(array((int)$ts, $m));
-			unset($b['readings'][$ts]);
-		}
-	}
-	// Preise vergangener Viertelstunden archivieren (kuenftige bleiben im Puffer, sie koennen sich noch aendern)
-	foreach ($b['prices'] as $ts => $p) {
-		if ($ts < $untilTs) {
-			$pp->execute(array((int)$ts, $p[0], $p[1]));
-			unset($b['prices'][$ts]);
-		}
-	}
-	$db->commit();
-	return $n;
+	return count($done['usage']);
 }
 
 // ---------------------------------------------------------------------------
@@ -235,7 +250,8 @@ function ckw_stats_run(array $cfg, array $slotPrices, $nowTs, $log = null)
 	// (erster Lauf: bis 2 Tage zurueck, damit die Tageskurve sofort Preise zeigt)
 	$minTs = $b['flushed_hour'] !== null ? (int)$b['flushed_hour'] : $nowTs - 2 * 86400;
 	foreach ($slotPrices as $ts => $p) {
-		if ($ts >= $minTs) {
+		// Preise weit in der Zukunft nicht puffern (wuerden nie geschrieben und den Puffer nur aufblaehen)
+		if ($ts >= $minTs && $ts <= $nowTs + 3 * 86400) {
 			$b['prices'][$ts] = $p;
 		}
 	}
@@ -293,7 +309,7 @@ function ckw_stats_run(array $cfg, array $slotPrices, $nowTs, $log = null)
 			$n = ckw_stats_flush($b, $hour);
 			$b['flushed_hour'] = $hour;
 			ckw_log($log, 'DEB', "Statistik: $n Viertelstunden in die Datenbank geschrieben.");
-		} catch (Exception $e) {
+		} catch (Throwable $e) {
 			ckw_log($log, 'ERR', 'Statistik: Datenbank nicht beschreibbar - ' . $e->getMessage());
 		}
 	}

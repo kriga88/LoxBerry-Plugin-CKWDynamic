@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.0-beta.8 – 2026-10-24 (interne Beta, nicht veröffentlicht)
+Sicherheitsprüfung und Härtung:
+- **Deinstallation:** Plugin-Code wird nie mehr als root ausgeführt (bisher Rückfall auf `php fetch.php` als root – für den User loxberry beschreibbarer Code). Update-Skripte brechen ohne Plugin-/Temp-Ordner ab; Backup-Ordner nur für den Besitzer lesbar, fremder Ordner/Symlink wird abgelehnt
+- **Weboberfläche:** CSRF-Schutz für alle Aktionen und die Regel-Vorschau (Token pro Installation); Schutz gegen Einbetten in fremde Seiten (Clickjacking); Aktionen leiten nach dem Speichern weiter (F5 wiederholt nichts); Regeln werden über den Kurznamen statt die Position angesprochen (wiederholtes Löschen/zweiter Tab trifft keine falsche Regel mehr); das Einstellungsformular übernimmt nur seine eigenen Felder; manipulierte Parameter führen nicht mehr zu PHP-Fehlern; Preis-Seite bei Preis 0/negativ ohne Absturz
+- **Fremddaten (CKW-API, GitHub, ckw.ch):** HTTP nur http/https, Weiterleitungen nur auf HTTPS, TLS-Prüfung explizit, Grössenlimit pro Quelle (1 MB, GitHub 512 KB); Typprüfung aller Felder – fehlerhafte Tarifdateien oder API-Antworten brechen den Abruf nicht mehr ab (Rückfall auf mitgelieferte Tabelle, Fehlermarker verhindert Dauerschleife); Zeitstempel nur im CKW-Format/Viertelstundenraster; Caches enthalten nur noch geprüfte Daten; Obergrenzen für Einträge
+- **Robustheit:** Statistik verliert bei Datenbankfehlern keine Daten mehr (Transaktion, Puffer erst nach Commit gekürzt); Laufzeit-Planung braucht im Extremfall ca. 1/5 des Speichers (identische Ergebnisse); fatale PHP-Fehler und Lock-Probleme werden ins Log geschrieben; ungültiges UTF-8 macht Meldungen/JSON nicht mehr kaputt
+- **Log:** fremde Texte werden entschärft (keine gefälschten Logzeilen, kein HTML im Logviewer); MQTT-Benutzername nicht mehr im Log
+- SDK-Dateien mit absolutem Pfad laden; Test-Umleitungen der URLs nur noch auf der Kommandozeile
+
 ## 1.3.0-beta.7 – 2026-10-21 (interne Beta, nicht veröffentlicht)
 - Leistungstarif laut CKW-Preisblättern 2027: Business dynamic 6.00 CHF/kW/Monat (Vergleich Netz LG7 8.00), Home dynamic 1.00 (Netz E 1.50), exkl. MwSt
 - Preistabelle: Leistungspreise (Rp./kW/Monat) bis 5000 zulässig

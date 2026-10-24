@@ -108,9 +108,11 @@ function ckw_sanitize_rule(array $in, array &$errors)
 {
 	global $CKW_RULE_TYPES, $CKW_RULE_LIMIT_MODES, $CKW_COMPONENTS;
 	$d = ckw_rule_defaults();
-	$c = array_merge($d, $in);
+	$c = array_merge($d, ckw_typed_fields($in, $d));
 	$r = array();
-	$r['name'] = trim(preg_replace('/[\x00-\x1f<>]/', '', (string)$c['name']));
+	// ungueltiges UTF-8 entfernen (sonst scheitert das Speichern als JSON), Steuerzeichen und <> weg
+	$name = function_exists('mb_scrub') ? mb_scrub((string)$c['name'], 'UTF-8') : (string)$c['name'];
+	$r['name'] = trim(preg_replace('/[\x00-\x1f\x7f<>]/', '', $name));
 	$r['name'] = function_exists('mb_substr') ? mb_substr($r['name'], 0, 40) : substr($r['name'], 0, 40);
 	$label = $r['name'] !== '' ? "Regel \"{$r['name']}\"" : 'Regel';
 	if ($r['name'] === '') {
@@ -184,7 +186,8 @@ function ckw_sanitize_rule(array $in, array &$errors)
 		if (!is_array($st)) {
 			continue;
 		}
-		$raw = array(isset($st['from']) ? $st['from'] : '', isset($st['to']) ? $st['to'] : '', isset($st['out']) ? $st['out'] : '');
+		$cell = function ($k) use ($st) { return (isset($st[$k]) && is_scalar($st[$k])) ? (string)$st[$k] : ''; };
+		$raw = array($cell('from'), $cell('to'), $cell('out'));
 		if (trim(implode('', array_map('strval', $raw))) === '') {
 			continue;   // leere Zeile
 		}
@@ -519,8 +522,15 @@ function ckw_rule_schedule(array $r, array $p, $lim, array $h)
 function ckw_rule_runtime_dp(array $r, array $p, $lim, array $h)
 {
 	$n = count($p);
-	$need = max(0, (int)round($r['hours'] * 4) - $h['done']);
+	// Zustandsraum klein halten (Speicher/Zeit auf dem Raspberry), ohne das Ergebnis zu aendern:
+	// mehr Ein-Slots als verbleibend sind nicht erreichbar (die Strafe dafuer ist fuer alle Wege gleich) ...
+	$need = min($n, max(0, (int)round($r['hours'] * 4) - $h['done']));
 	$M = $r['max_off_h'] > 0 ? (int)round($r['max_off_h'] * 4) : 0;
+	// ... und eine max. Aus-Zeit, die im restlichen Fenster gar nicht erreicht werden kann, entfaellt
+	$offHist = $h['run_on'] > 0 ? 0 : ($h['known'] ? $h['run_off'] : 1);
+	if ($M > 0 && $M >= $offHist + $n) {
+		$M = 0;
+	}
 	$B = max(1, (int)ceil($r['min_block_min'] / 15));
 	$offCap = $M > 0 ? $M + 1 : 1;
 	$comfort = $r['priority'] === 'comfort';
@@ -533,22 +543,25 @@ function ckw_rule_runtime_dp(array $r, array $p, $lim, array $h)
 	} else {
 		$s0 = -min(max(1, $h['known'] ? $h['run_off'] : 1), $offCap);
 	}
-	$key = function ($s, $c) use ($need) { return (($s + 1000) * 1000) + $c; };
-	$cur = array($key($s0, 0) => array(0.0, $s0, 0));
+	// Zustand als Ganzzahl (s, c) -> Schluessel; je Slot nur Kosten und Vorgaenger*2+Ein als Zahlen speichern
+	// (statt verschachtelter Arrays: Speicher im Extremfall rund 4x kleiner)
+	$cur = array((($s0 + 1000) * 1000) => 0.0);
 	$parent = array();
 	for ($i = 0; $i < $n; $i++) {
 		$next = array();
+		$par = array();
 		$price = $p[$i] + (($lim !== null && $p[$i] > $lim) ? $OVER : 0);
-		foreach ($cur as $k => $st) {
-			list($cost, $s, $c) = $st;
+		foreach ($cur as $k => $cost) {
+			$s = intdiv($k, 1000) - 1000;
+			$c = $k % 1000;
 			// Ein
 			$ns = $s > 0 ? min($s + 1, $B) : 1;
 			$nc = min($c + 1, $need);
-			$nk = $key($ns, $nc);
+			$nk = ($ns + 1000) * 1000 + $nc;
 			$v = $cost + $price;
-			if (!isset($next[$nk]) || $v < $next[$nk][0]) {
-				$next[$nk] = array($v, $ns, $nc);
-				$parent[$i][$nk] = array($k, true);
+			if (!isset($next[$nk]) || $v < $next[$nk]) {
+				$next[$nk] = $v;
+				$par[$nk] = $k * 2 + 1;
 			}
 			// Aus (nur wenn kein Mindestblock laeuft)
 			if ($s < 0 || $s >= $B) {
@@ -561,19 +574,20 @@ function ckw_rule_runtime_dp(array $r, array $p, $lim, array $h)
 					$v += $VIOL;
 				}
 				$ns = -min($len, $offCap);
-				$nk = $key($ns, $c);
-				if (!isset($next[$nk]) || $v < $next[$nk][0]) {
-					$next[$nk] = array($v, $ns, $c);
-					$parent[$i][$nk] = array($k, false);
+				$nk = ($ns + 1000) * 1000 + $c;
+				if (!isset($next[$nk]) || $v < $next[$nk]) {
+					$next[$nk] = $v;
+					$par[$nk] = $k * 2;
 				}
 			}
 		}
+		$parent[$i] = $par;
 		$cur = $next;
 	}
 	$bestK = null;
 	$best = null;
-	foreach ($cur as $k => $st) {
-		$v = $st[0] + ($need - $st[2]) * $UNMET;
+	foreach ($cur as $k => $cost) {
+		$v = $cost + ($need - $k % 1000) * $UNMET;
 		if ($best === null || $v < $best - 1e-9) {
 			$best = $v;
 			$bestK = $k;
@@ -581,8 +595,9 @@ function ckw_rule_runtime_dp(array $r, array $p, $lim, array $h)
 	}
 	$on = array_fill(0, $n, false);
 	for ($i = $n - 1, $k = $bestK; $i >= 0; $i--) {
-		list($k, $isOn) = $parent[$i][$k];
-		$on[$i] = $isOn;
+		$pk = $parent[$i][$k];
+		$on[$i] = ($pk & 1) === 1;
+		$k = $pk >> 1;
 	}
 	return $on;
 }
@@ -920,7 +935,8 @@ function ckw_rule_reference(array $r, array $table, $from, $to)
 function ckw_rules_ui_table(array $cfg, $nowTs)
 {
 	$cache = ckw_read_json(ckw_cache_file());
-	$raw = ($cache && isset($cache['prices']) && $cache['tariff'] === $cfg['tariff']) ? ckw_parse_slots($cache['prices']) : array();
+	$raw = ($cache && isset($cache['prices'], $cache['tariff']) && is_array($cache['prices']) && $cache['tariff'] === $cfg['tariff'])
+		? ckw_parse_slots($cache['prices']) : array();
 	$tariffs = ckw_load_tariffs($cfg['tariffs_remote'], null, false);
 	$day = (new DateTimeImmutable('@' . (int)$nowTs))->setTimezone(new DateTimeZone(CKW_TZ))->setTime(0, 0, 0);
 	return ckw_rules_price_table($raw, $cfg, $tariffs['data'], $day->modify('-1 day')->getTimestamp(), $day->modify('+3 day')->getTimestamp());
