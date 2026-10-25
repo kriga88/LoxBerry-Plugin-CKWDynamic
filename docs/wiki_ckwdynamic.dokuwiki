@@ -119,7 +119,7 @@ Das Plugin rechnet zusätzlich den Preis, den du mit dem **fixen (nicht dynamisc
   * Ist für das laufende Jahr kein fixer Netztarif bekannt (z. B. falls CKW den Fixtarif nicht mehr anbietet), gehen ''fixed_total'', ''fixed_diff'', ''cheaper_than_fixed'' und ''cheaper_hours'' auf ''-1'' – ein Vorjahreswert wird bewusst nicht verwendet. Der Loxone-Eingang geht dadurch auf Fehler; zusätzlich Hinweis in ''price_warning'', Log und Weboberfläche.
   * Nicht berücksichtigt sind Leistungstarif (fix 1.50 statt dynamisch 1.00 CHF/kW/Monat) und Messentgelt, da sie nicht pro kWh anfallen.
 
-===== Verbrauchsstatistik (ab 1.2.0) =====
+===== Verbrauchsstatistik (ab 1.3.0) =====
 
 Weder Kundenportal noch App der CKW zeigen, **wann** du zu **welchem** dynamischen Preis bezogen hast. Das Plugin kann das selbst erfassen: Es liest alle 15 Minuten den Zählerstand Bezug deines Netzzählers, bildet die Differenz zum letzten Stand und bewertet diesen Verbrauch mit dem Preis genau dieser Viertelstunde (Total wie eingestellt, inkl. Konzession, Zusatzkosten und MwSt). Parallel wird gerechnet, was derselbe Verbrauch mit dem Fixtarif gekostet hätte.
 
@@ -285,7 +285,7 @@ Wer lieber die Betriebsart **Absolut** nutzt, aktiviert in den Einstellungen „
 | ''fixed_total'' | Preis mit dem fixen CKW-Netztarif (Netz E bzw. Netz LG7) bei gleichem Stromprodukt, Abgaben und MwSt – Referenz (ab 1.1.0) |
 | ''fixed_diff'' | Aktueller Preis minus Fixtarif-Preis: negativ = dynamisch günstiger |
 | ''cheaper_than_fixed'' / ''cheaper_hours'' | 1 = aktuelle Viertelstunde günstiger als der Fixtarif / Anzahl der nächsten 24 Stunden unter dem Fixtarif |
-| ''stat_kwh_today'' / ''_month'' / ''_year'' | Statistik: Verbrauch heute / laufender Monat / laufendes Jahr (kWh, ab 1.2.0, nur mit eingerichteter Statistik) |
+| ''stat_kwh_today'' / ''_month'' / ''_year'' | Statistik: Verbrauch heute / laufender Monat / laufendes Jahr (kWh, ab 1.3.0, nur mit eingerichteter Statistik) |
 | ''stat_cost_today'' / ''_month'' / ''_year'' | Statistik: Energiekosten dynamisch (CHF) |
 | ''stat_avgprice_today'' / ''_month'' / ''_year'' | Statistik: bezahlter Durchschnittspreis (Einheit wie eingestellt, -1 = noch kein Verbrauch) |
 | ''stat_saving_today'' / ''_month'' / ''_year'' | Statistik: Ersparnis gegenüber Fixtarif in CHF, Monat/Jahr inkl. Leistungstarif (negativ = Mehrkosten, -1 = kein Fixtarif) |

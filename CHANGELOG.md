@@ -1,61 +1,26 @@
 # Changelog
 
-## 1.3.0-beta.8 – 2026-10-24 (interne Beta, nicht veröffentlicht)
-Sicherheitsprüfung und Härtung:
-- **Deinstallation:** Plugin-Code wird nie mehr als root ausgeführt (bisher Rückfall auf `php fetch.php` als root – für den User loxberry beschreibbarer Code). Update-Skripte brechen ohne Plugin-/Temp-Ordner ab; Backup-Ordner nur für den Besitzer lesbar, fremder Ordner/Symlink wird abgelehnt
-- **Weboberfläche:** CSRF-Schutz für alle Aktionen und die Regel-Vorschau (Token pro Installation); Schutz gegen Einbetten in fremde Seiten (Clickjacking); Aktionen leiten nach dem Speichern weiter (F5 wiederholt nichts); Regeln werden über den Kurznamen statt die Position angesprochen (wiederholtes Löschen/zweiter Tab trifft keine falsche Regel mehr); das Einstellungsformular übernimmt nur seine eigenen Felder; manipulierte Parameter führen nicht mehr zu PHP-Fehlern; Preis-Seite bei Preis 0/negativ ohne Absturz
-- **Fremddaten (CKW-API, GitHub, ckw.ch):** HTTP nur http/https, Weiterleitungen nur auf HTTPS, TLS-Prüfung explizit, Grössenlimit pro Quelle (1 MB, GitHub 512 KB); Typprüfung aller Felder – fehlerhafte Tarifdateien oder API-Antworten brechen den Abruf nicht mehr ab (Rückfall auf mitgelieferte Tabelle, Fehlermarker verhindert Dauerschleife); Zeitstempel nur im CKW-Format/Viertelstundenraster; Caches enthalten nur noch geprüfte Daten; Obergrenzen für Einträge
-- **Robustheit:** Statistik verliert bei Datenbankfehlern keine Daten mehr (Transaktion, Puffer erst nach Commit gekürzt); Laufzeit-Planung braucht im Extremfall ca. 1/5 des Speichers (identische Ergebnisse); fatale PHP-Fehler und Lock-Probleme werden ins Log geschrieben; ungültiges UTF-8 macht Meldungen/JSON nicht mehr kaputt
-- **Log:** fremde Texte werden entschärft (keine gefälschten Logzeilen, kein HTML im Logviewer); MQTT-Benutzername nicht mehr im Log
-- SDK-Dateien mit absolutem Pfad laden; Test-Umleitungen der URLs nur noch auf der Kommandozeile
+## 1.3.0 – 2026-10-25
+**Verbrauchsstatistik** (eigener Reiter *Statistik*: Tag / Monat / Jahr / Einrichtung)
+- Zählerstand Bezug alle 15 Minuten vom Miniserver (Zähler-Baustein, Ausgang wählbar – Standard Mrc – oder virtueller Eingang/Merker) bzw. per MQTT (retained)
+- Verbrauch pro Viertelstunde bewertet mit dem Preis dieser Viertelstunde (Total wie eingestellt) und mit dem Fixtarif; Tageskurve Preis + Verbrauch, Monats-/Jahressummen, Verbrauch nach Preisstufe, CSV-Export (Chart.js lokal mitgeliefert)
+- **Leistungstarif:** höchste Viertelstunden-Leistung je Monat × Leistungspreis (Home dynamic 1.00 / Netz E 1.50, Business dynamic 6.00 / Netz LG7 8.00 CHF/kW/Monat, übersteuerbar); Total Energie + Leistung, Ersparnis inkl. Leistungsdifferenz
+- Lücken werden gleichmässig verteilt und als geschätzt markiert, Zählertausch/Ausreisser verworfen; Knopf „Verbrauchsdaten löschen“
+- Ausgänge `stat_kwh_*`, `stat_cost_*`, `stat_avgprice_*`, `stat_saving_*`, `stat_peak_kw_*`, `stat_powercost_*`, `stat_total_*`, `stat_meter_ok`
+- SD-Karte geschont: Statistik-Puffer in der RAM-Disk, stündlich gebündelt in SQLite (ca. 3 MB/Jahr); Preis-Cache nur bei geänderten Preisen, Statusdateien in der RAM-Disk (ca. 15 MB/Tag → ca. 1 MB/Tag). Neue Abhängigkeit php-sqlite3 (wird automatisch installiert)
 
-## 1.3.0-beta.7 – 2026-10-21 (interne Beta, nicht veröffentlicht)
-- Leistungstarif laut CKW-Preisblättern 2027: Business dynamic 6.00 CHF/kW/Monat (Vergleich Netz LG7 8.00), Home dynamic 1.00 (Netz E 1.50), exkl. MwSt
-- Preistabelle: Leistungspreise (Rp./kW/Monat) bis 5000 zulässig
+**Schaltregeln** (eigener Reiter *Regeln*, bis 20 Regeln) – flexibler als der Spotpreis-Optimierer
+- Typen: Günstigste Zeiten (optional am Stück), Laufzeit (Mindest-Ein-Zeit, max. Aus-Zeit am Stück, Mindest-Laufblock, Vorrang Komfort/Preis), Preisschwelle (mit Mindestdauer), Immer im Zeitfenster
+- Zeitfenster pro Regel (auch über Mitternacht); Grenzen per Regler: fester Preis im CKW-Preisband, % Preisband ab Minimum/Maximum (Netznutzung 0.1–32 Rp./kWh laut CKW), Anteil der Viertelstunden, Fixtarif ±
+- Analogwert pro Regel: Stufen „Preis von–bis → Wert“ oder linear, Aus-Wert, Haltezeit – z. B. Wärmepumpenleistung oder SG-Ready 1–4
+- Vorlagen (Auto laden, Waschmaschine, Wärmepumpe, SG-Ready, Sperrzeit, Boiler), Regeln kopieren, Live-Vorschau mit Kosten
+- Ausgänge `rule_<k>_on`, `_value`, `_value_next`, `_next_min`, `_next_clock`, `_left_min`, `_done_min`, `_hours`, `_cost` sowie `<topic>/rules/json`
 
-## 1.3.0-beta.6 – 2026-10-21 (interne Beta, nicht veröffentlicht)
-- Statistik: Leistungstarif – höchste Viertelstunden-Leistung je Tag/Monat, Leistungskosten (Spitze je Monat × 1.00 CHF/kW/Monat, Fixtarif 1.50), Total Energie + Leistung; Ersparnis Monat/Jahr inkl. Leistungsdifferenz
-- Neue Ausgänge `stat_peak_kw_*`, `stat_powercost_month/_year`, `stat_total_month/_year`
-- Einrichtung: Leistungstarif übersteuerbar (Standard aus Preistabelle `<tarif>_power` / `_power_fixed`)
-
-## 1.3.0-beta.5 – 2026-10-21 (interne Beta, nicht veröffentlicht)
-- Analogwert linear: Punkte A/B wahlweise in % Preisband ab Minimum (Standard für neue Regeln) oder als fester Preis
-- Editor: Stufen- und Linear-Felder zeigen die Einheit (%, Rp./kWh bzw. CHF/kWh) und daneben den entsprechenden Preis; Werte ausserhalb 0–100 % werden markiert
-
-## 1.3.0-beta.4 – 2026-10-21 (interne Beta, nicht veröffentlicht)
-- Schaltregeln: geschätzte Kosten (`rule_<k>_cost`) gelten jetzt für das ganze Zeitfenster (bereits gelaufen + geplant) – bisher nur der Rest, bei kurzen Fenstern nach der Ein-Zeit darum 0.00
-- Neu: `rule_<k>_hours` = geschätzte Ein-Zeit im Zeitfenster in Stunden; Regelliste und Vorschau zeigen Ein-Zeit und Kosten
-
-## 1.3.0-beta.3 – 2026-10-21 (interne Beta, nicht veröffentlicht)
-- Schaltregeln kopieren: Knopf in der Regelliste öffnet den Editor mit allen Einstellungen als neue Regel („… (Kopie)“, eigener Kurzname)
-
-## 1.3.0-beta.2 – 2026-10-21 (interne Beta, nicht veröffentlicht)
-- Schaltregeln: neue, eindeutige Grenzarten mit Regler und Live-Preis – fester Preis (nur im CKW-Preisband), % Preisband ab Minimum bzw. ab Maximum (Band laut CKW 0.1–32 Rp./kWh Netznutzung, aufs Total umgerechnet), Anteil der Viertelstunden, Fixtarif ±. Entfallen: „% zum Mittel“ und „Drittel“ (bestehende Regeln werden automatisch umgestellt)
-- Analogwert-Stufen als „Preis von–bis → Wert“ mit Prüfung (von < bis, Bereich, Hinweis bei Lücke/Überlappung)
-- Editor: Beim Wechsel der Grenzart bleibt der Preis gleich; Hilfetexte zu „am Stück“, „Ohne aktuelle CKW-Preise“ und Leistung
-- Vorlagen auf „Anteil der Viertelstunden“ umgestellt
-- tariffs.json: Preisband `<tarif>_min`/`_max` in `dynamic_reference`
-
-## 1.3.0-beta.1 – 2026-10-21 (interne Beta, nicht veröffentlicht)
-- Neu: **Schaltregeln** (Reiter **Regeln**, max. 20): Typen Günstigste Zeiten (optional am Stück), Laufzeit (Mindest-Ein-Zeit, max. Aus-Zeit am Stück, Mindest-Laufblock, Vorrang Komfort/Preis), Preisschwelle (mit Mindestdauer) und Immer im Zeitfenster
-- Zeitfenster pro Regel (auch über Mitternacht), Grenzen absolut, % zum Mittel, Drittel oder relativ zum Fixtarif
-- Analogwert pro Regel (Stufen oder linear, Aus-Wert, Haltezeit), z. B. Wärmepumpenleistung oder SG-Ready 1–4
-- Vorlagen (Auto laden, Waschmaschine, Wärmepumpe, SG-Ready, Sperrzeit, Boiler) und Live-Vorschau im Editor
-- Ausgänge `rule_<k>_on`, `_value`, `_value_next`, `_next_min`, `_next_clock`, `_left_min`, `_done_min`, `_cost` sowie `<topic>/rules/json`
-
-## 1.2.0-beta.2 – 2026-10-21 (interne Beta, nicht veröffentlicht)
-- Statistik: Beim Zähler-Baustein wird der eingestellte Ausgang gelesen (Standard **Mrc**), bisher lieferte der Miniserver den ersten Ausgang (Pf = Leistung). Bei falschem Ausgang zeigt „Zählerstand jetzt lesen“ alle vorhandenen an.
-- Statistik: Knopf „Verbrauchsdaten löschen“ (Neustart nach falscher Einrichtung)
-
-## 1.2.0-beta.1 – 2026-10-21 (interne Beta, nicht veröffentlicht)
-- Neu: Verbrauchsstatistik mit dynamischen Preisen (eigener Reiter **Statistik**: Tag / Monat / Jahr / Einrichtung)
-  - Zählerstand Bezug vom Miniserver (virtueller Eingang/Merker) oder per MQTT (retained), alle 15 Minuten
-  - Verbrauch pro Viertelstunde bewertet mit dem Preis dieser Viertelstunde (Total wie eingestellt) und mit dem Fixtarif
-  - Tageskurve Preis + Verbrauch, Monats-/Jahressummen, Verbrauch nach Preisstufe, CSV-Export (Diagramme mit Chart.js, lokal mitgeliefert)
-  - Lücken werden gleichmässig verteilt und als geschätzt markiert, Zählertausch/Ausreisser werden verworfen
-  - Neue Ausgänge `stat_kwh_*`, `stat_cost_*`, `stat_avgprice_*`, `stat_saving_*` (today/month/year) und `stat_meter_ok`
-- SD-Karte schonen: Preis-Cache nur bei geänderten Preisen schreiben, Statusdateien in der RAM-Disk, Statistik stündlich gebündelt in SQLite (ca. 15 MB/Tag → ca. 1 MB/Tag)
-- Loxone-Vorlage: Einheit pro Wert (`<v.2>` für CHF, `<v.3>` für Preise/kWh)
+**Sicherheit und Robustheit**
+- Deinstallation führt Plugin-Code nie mehr als root aus; Update-Skripte prüfen ihre Argumente und den Backup-Ordner
+- Weboberfläche: CSRF-Schutz für alle Aktionen, Schutz gegen Einbetten in fremde Seiten, Weiterleitung nach Aktionen (F5 wiederholt nichts), Regeln über den Kurznamen angesprochen, strikte Prüfung aller Eingaben
+- Fremddaten (CKW-API, GitHub, ckw.ch): Weiterleitungen nur auf HTTPS, TLS-Prüfung, Grössenlimits, Typprüfung – fehlerhafte Tarifdateien oder API-Antworten brechen den Abruf nicht mehr ab; Caches nur mit geprüften Daten
+- Fatale Fehler und Lock-Probleme erscheinen im Log; Log-Einträge mit fremden Texten werden entschärft
 
 ## 1.1.0 – 2026-10-21
 - Fixtarif-Vergleich: Ist für das laufende Jahr kein fixer Netztarif bekannt, gehen alle `fixed_*`/`cheaper_*`-Werte auf -1 (kein Vorjahreswert), damit der Loxone-Eingang auf Fehler geht

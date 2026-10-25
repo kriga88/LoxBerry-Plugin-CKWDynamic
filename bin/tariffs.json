@@ -1,6 +1,6 @@
 {
     "_info": "Rueckfalltabelle. Das Plugin liest die Jahrespreise automatisch aus den maschinenlesbaren CKW-Tarifdateien (ckw.ch). Diese Tabelle wird nur verwendet, wenn das nicht klappt; Eintraege hier koennen auf GitHub ergaenzt werden und gelten ab valid_from.",
-    "updated": "2026-10-17",
+    "updated": "2026-10-25",
     "source": "CKW-Tarifdateien 20250828_tariffs.json und 20260817_tariffs.json (ckw.ch/stromprodukte)",
     "products": {
         "classic": {
